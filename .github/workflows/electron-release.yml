@@ -122,7 +122,7 @@ jobs:
           from pathlib import Path
 
           body = Path(sys.argv[1]).read_text()
-          marker = f"<!-- craft-release-run:{sys.argv[3]} -->"
+          marker = f"<!-- mkrate-release-run:{sys.argv[3]} -->"
           Path(sys.argv[2]).write_text(body + ("" if body.endswith("\n") else "\n") + f"\n{marker}\n")
           PY
 
@@ -158,7 +158,7 @@ jobs:
               --draft \
               --verify-tag \
               --target "$RELEASE_SHA" \
-              --title "Craft Agents $RELEASE_TAG" \
+              --title "Mkrate $RELEASE_TAG" \
               --notes-file "$marked_notes"
 
             if [[ ! "$DRAFT_VISIBILITY_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] ||
@@ -207,7 +207,7 @@ jobs:
           expected_sha = sys.argv[4]
           checks = {
               "tag_name": release.get("tag_name") == expected_tag,
-              "name": release.get("name") == f"Craft Agents {expected_tag}",
+              "name": release.get("name") == f"Mkrate {expected_tag}",
               "target_commitish": release.get("target_commitish") == expected_sha,
               "body": (release.get("body") or "") == expected_body,
               "draft": release.get("draft") is True,
@@ -281,7 +281,7 @@ jobs:
           set -euo pipefail
 
           files=(
-            apps/electron/release/Craft-Agents-x64.AppImage
+            apps/electron/release/Mkrate-x64.AppImage
             apps/electron/release/latest-linux.yml
           )
           for file in "${files[@]}"; do
@@ -347,10 +347,10 @@ jobs:
           set -euo pipefail
 
           files=(
-            apps/electron/release/Craft-Agents-arm64.dmg
-            apps/electron/release/Craft-Agents-arm64.zip
-            apps/electron/release/Craft-Agents-arm64.dmg.blockmap
-            apps/electron/release/Craft-Agents-arm64.zip.blockmap
+            apps/electron/release/Mkrate-arm64.dmg
+            apps/electron/release/Mkrate-arm64.zip
+            apps/electron/release/Mkrate-arm64.dmg.blockmap
+            apps/electron/release/Mkrate-arm64.zip.blockmap
             apps/electron/release/latest-mac.yml
           )
           for file in "${files[@]}"; do
@@ -418,10 +418,10 @@ jobs:
           # A single latest-mac.yml is published by the arm64 job. The x64
           # artifacts remain available for manual Intel Mac installation.
           files=(
-            apps/electron/release/Craft-Agents-x64.dmg
-            apps/electron/release/Craft-Agents-x64.zip
-            apps/electron/release/Craft-Agents-x64.dmg.blockmap
-            apps/electron/release/Craft-Agents-x64.zip.blockmap
+            apps/electron/release/Mkrate-x64.dmg
+            apps/electron/release/Mkrate-x64.zip
+            apps/electron/release/Mkrate-x64.dmg.blockmap
+            apps/electron/release/Mkrate-x64.zip.blockmap
           )
           for file in "${files[@]}"; do
             if [[ ! -f "$file" ]]; then
@@ -484,8 +484,8 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $files = @(
-            "apps/electron/release/Craft-Agents-x64.exe",
-            "apps/electron/release/Craft-Agents-x64.exe.blockmap",
+            "apps/electron/release/Mkrate-x64.exe",
+            "apps/electron/release/Mkrate-x64.exe.blockmap",
             "apps/electron/release/latest.yml"
           )
           $headers = @{
@@ -634,29 +634,29 @@ jobs:
           const release = JSON.parse(readFileSync(join(runnerTemp, 'release.json'), 'utf8'));
           const apiAssets = JSON.parse(readFileSync(join(runnerTemp, 'assets.json'), 'utf8'));
           const notesBody = readFileSync(notesFile, 'utf8');
-          const expectedBody = notesBody + (notesBody.endsWith('\n') ? '' : '\n') + `\n<!-- craft-release-run:${process.env.GITHUB_RUN_ID} -->\n`;
+          const expectedBody = notesBody + (notesBody.endsWith('\n') ? '' : '\n') + `\n<!-- mkrate-release-run:${process.env.GITHUB_RUN_ID} -->\n`;
           assert(String(release.id) === process.env.RELEASE_ID, `release ID mismatch: ${release.id}`);
           assert(release.tag_name === releaseTag, `release tag mismatch: ${release.tag_name}`);
           assert(release.target_commitish === process.env.RELEASE_SHA, `release target mismatch: ${release.target_commitish}`);
-          assert(release.name === `Craft Agents ${releaseTag}`, `release title mismatch: ${release.name}`);
+          assert(release.name === `Mkrate ${releaseTag}`, `release title mismatch: ${release.name}`);
           assert((release.body ?? '') === expectedBody, 'draft body/ownership marker does not exactly match');
           assert(release.draft === true, 'release must remain a draft during verification');
           assert(release.prerelease === false, 'release must not be a prerelease');
 
           const expectedAssets = [
-            'Craft-Agents-x64.AppImage',
+            'Mkrate-x64.AppImage',
             'latest-linux.yml',
-            'Craft-Agents-arm64.dmg',
-            'Craft-Agents-arm64.zip',
-            'Craft-Agents-arm64.dmg.blockmap',
-            'Craft-Agents-arm64.zip.blockmap',
+            'Mkrate-arm64.dmg',
+            'Mkrate-arm64.zip',
+            'Mkrate-arm64.dmg.blockmap',
+            'Mkrate-arm64.zip.blockmap',
             'latest-mac.yml',
-            'Craft-Agents-x64.dmg',
-            'Craft-Agents-x64.zip',
-            'Craft-Agents-x64.dmg.blockmap',
-            'Craft-Agents-x64.zip.blockmap',
-            'Craft-Agents-x64.exe',
-            'Craft-Agents-x64.exe.blockmap',
+            'Mkrate-x64.dmg',
+            'Mkrate-x64.zip',
+            'Mkrate-x64.dmg.blockmap',
+            'Mkrate-x64.zip.blockmap',
+            'Mkrate-x64.exe',
+            'Mkrate-x64.exe.blockmap',
             'latest.yml',
           ].sort();
 
@@ -685,9 +685,9 @@ jobs:
           }
 
           const manifests = [
-            { name: 'latest-linux.yml', files: ['Craft-Agents-x64.AppImage'] },
-            { name: 'latest-mac.yml', files: ['Craft-Agents-arm64.dmg', 'Craft-Agents-arm64.zip'] },
-            { name: 'latest.yml', files: ['Craft-Agents-x64.exe'] },
+            { name: 'latest-linux.yml', files: ['Mkrate-x64.AppImage'] },
+            { name: 'latest-mac.yml', files: ['Mkrate-arm64.dmg', 'Mkrate-arm64.zip'] },
+            { name: 'latest.yml', files: ['Mkrate-x64.exe'] },
           ];
 
           for (const spec of manifests) {
@@ -762,7 +762,7 @@ jobs:
           from pathlib import Path
 
           payload = {
-              "name": f"Craft Agents {sys.argv[2]}",
+              "name": f"Mkrate {sys.argv[2]}",
               "body": Path(sys.argv[1]).read_text(),
               "draft": False,
               "prerelease": False,
@@ -791,7 +791,7 @@ jobs:
           checks = {
               "id": release.get("id") == expected_id,
               "tag": release.get("tag_name") == expected_tag,
-              "title": release.get("name") == f"Craft Agents {expected_tag}",
+              "title": release.get("name") == f"Mkrate {expected_tag}",
               "body": (release.get("body") or "") == expected_body,
               "published": release.get("draft") is False and release.get("published_at") is not None,
               "not_prerelease": release.get("prerelease") is False,

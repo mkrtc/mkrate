@@ -83,7 +83,7 @@ export async function rebuildMenu(): Promise<void> {
   const template: Electron.MenuItemConstructorOptions[] = [
     // App menu (macOS only)
     ...(isMac ? [{
-      label: 'Craft Agents',
+      label: 'Mkrate',
       submenu: [
         { role: 'about' as const, label: i18n.t('menu.aboutCraftAgents') },
         updateMenuItem,

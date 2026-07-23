@@ -42,7 +42,7 @@ export function Header({ hasSession, sessionTitle, isDark, onToggleTheme, onClea
       <a
         href="https://agents.craft.do"
         className="hover:opacity-80 transition-opacity"
-        title="Craft Agent"
+        title="Mkrate"
       >
         <CraftAgentLogo className="w-6 h-6 text-[#9570BE]" />
       </a>

@@ -1,21 +1,21 @@
-<div align="center">
-  <a href="https://trendshift.io/repositories/20714" target="_blank"><img src="https://trendshift.io/api/badge/repositories/20714" alt="craft-ai-agents%2Fcraft-agents-oss | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</div>
-
-# Craft Agents
+# Mkrate
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
-> [!NOTE]
-> This repository is a personal fork of Craft Agents maintained at
-> [`mkrtc/craft-agents-oss`](https://github.com/mkrtc/craft-agents-oss).
-> The original upstream project lives at
-> [`craft-ai-agents/craft-agents-oss`](https://github.com/craft-ai-agents/craft-agents-oss).
+> [!IMPORTANT]
+> **Mkrate is an independent, community-maintained fork of [Craft Agents](https://github.com/craft-ai-agents/craft-agents-oss).**
+> It is **not affiliated with, sponsored by, or endorsed by Craft Docs Ltd.**
 >
-> This fork keeps the upstream app intact and adds local workflow/UX changes listed below.
+> - This fork: [`mkrtc/mkrate`](https://github.com/mkrtc/mkrate) · [mkrate.ru](https://mkrate.ru)
+> - Upstream project: [`craft-ai-agents/craft-agents-oss`](https://github.com/craft-ai-agents/craft-agents-oss)
+>
+> "Craft", "Craft Agents", and the Craft logo are trademarks of Craft Docs Ltd. Mkrate references
+> them only nominatively — to state factually that it is based on and compatible with the upstream
+> project. See [`TRADEMARK.md`](TRADEMARK.md). Mkrate keeps the upstream app's functionality intact
+> and adds the local workflow/UX changes listed below.
 
-## What this fork adds
+## What Mkrate adds
 
 - **Label → Skill bindings**: bind workspace/session labels to skills so labelled sessions can automatically activate compact role/skill behavior.
 - **Compact role anchors**: label-bound skills use generated compact anchors on normal turns instead of injecting full `SKILL.md` content into hidden prompts.
@@ -23,26 +23,36 @@
 - **Settings UI for label-bound skills**: manage label/skill bindings from Settings with searchable label and skill selectors.
 - **Improved role UX**: active label-bound skills are surfaced as actual roles while preserving explicit `[skill:slug]` behavior.
 - **Chat scroll-to-bottom control**: adds a down-button in the input-zone top row next to the `Info` button.
-- **Fork update feed**: packaged builds and install scripts are configured to pull updates from this fork's GitHub Releases.
+- **Mkrate update feed**: packaged builds and install scripts pull updates from Mkrate's GitHub Releases at [`mkrtc/mkrate`](https://github.com/mkrtc/mkrate/releases/latest).
 
-## How it Works (Video)
-To understand what Craft Agents does and how it works watch this video.
+> [!NOTE]
+> Some internal identifiers are intentionally **unchanged** for drop-in compatibility with existing
+> installs and upstream tooling: the `@craft-agent/*` package scopes, `CRAFT_*` environment
+> variables, the `~/.craft-agent` config directory, and the `craftagents://` deep-link/OAuth scheme.
+> These are not user-facing brand names. See [`TRADEMARK.md`](TRADEMARK.md) for the rationale.
+
+## How it works (video)
+
+Mkrate is based on Craft Agents; this upstream demo shows the shared core experience:
 
 [![Demo Video](https://img.youtube.com/vi/xQouiAIilvU/hqdefault.jpg)](https://www.youtube.com/watch?v=xQouiAIilvU)
 
 [Click Here (or on the image above) to watch the video on YouTube →](https://www.youtube.com/watch?v=xQouiAIilvU)
 
 
-## Why Craft Agents was built
-Craft Agents is a tool we built so that we (at craft.do) can work effectively with agents. It enables intuitive multitasking, no-fluff connection to any API or Service, sharing sessions, and a more document (vs code) centric workflow - in a beautiful and fluid UI.
+## About Mkrate
 
-It uses the Claude Agent SDK and the Pi SDK side by side—building on what we found great and improving areas where we've desired improvements.
+Mkrate is a desktop agent app for working effectively with coding and workflow agents: intuitive
+multitasking, no-fluff connection to any API or service, shareable sessions, and a document-centric
+(vs. code-centric) workflow — in a fluid UI.
 
-It's built with Agent Native software principles in mind, and is highly customisable out of the box. One of the first of its kind.
+It is an independent fork of **Craft Agents**, the open-source app originally built by Craft Docs Ltd.
+Like the upstream project, Mkrate uses the Claude Agent SDK and the Pi SDK side by side, is built with
+agent-native principles, and is highly customisable out of the box.
 
-Craft Agents is open source under the Apache 2.0 license - so you are free to remix, change anything. And that's actually possible. We ourselves are building Craft Agents with Craft Agents only - no code editors - so really, any customisation is just a prompt away.
-
-We built Craft Agents because we wanted a better, more opinionated (and preferably non-CLI way) of working with the most powerful agents in the world. We'll continue to improve it, based on our experiences and intuition.
+Mkrate is open source under the Apache 2.0 license — you are free to remix and change anything. This
+fork exists to carry that base forward with an independent brand and its own local workflow/UX changes,
+while remaining compatible with the upstream ecosystem.
 
 <img width="1578" height="894" alt="image" src="https://github.com/user-attachments/assets/3f1f2fe8-7cf6-4487-99ff-76f6c8c0a3fb" />
 
@@ -63,7 +73,7 @@ Fully supported. Stdio-based MCP servers run as local subprocesses on your machi
 Yes. Paste an OpenAPI spec, some endpoint URLs, screenshots of docs, whatever you have. It figures it out and guides you through the rest.
 
 **APIs too? Not just MCPs?**
-Craft Agents connects to anything. We have it hooked up to a direct Postgres DB behind a jumpbox. Skills + Sources = magic.
+Mkrate connects to anything. We have it hooked up to a direct Postgres DB behind a jumpbox. Skills + Sources = magic.
 
 **How do I import my Claude Code skills and MCPs?**
 Tell the agent you want to import your skills from Claude Code. It handles the migration.
@@ -85,42 +95,42 @@ Yes. That's the core idea behind agent-native software. You describe what you wa
 ### One-Line Install from this fork (Recommended)
 
 The install scripts below download the latest published desktop release from
-[`mkrtc/craft-agents-oss`](https://github.com/mkrtc/craft-agents-oss/releases/latest).
+[`mkrtc/mkrate`](https://github.com/mkrtc/mkrate/releases/latest).
 
 **macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mkrtc/craft-agents-oss/main/scripts/install-app.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh | bash
 ```
 
 **Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mkrtc/craft-agents-oss/main/scripts/install-app.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/mkrtc/craft-agents-oss/main/scripts/install-app.ps1 | iex
+irm https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.ps1 | iex
 ```
 
 By default, these scripts read updater manifests and artifacts from:
 
 ```txt
-https://github.com/mkrtc/craft-agents-oss/releases/latest/download
+https://github.com/mkrtc/mkrate/releases/latest/download
 ```
 
 For staging or custom feeds, override the release asset base URL:
 
 ```bash
 CRAFT_AGENTS_DOWNLOAD_BASE_URL=https://example.com/releases/latest/download \
-  bash <(curl -fsSL https://raw.githubusercontent.com/mkrtc/craft-agents-oss/main/scripts/install-app.sh)
+  bash <(curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh)
 ```
 
 ```powershell
 $env:CRAFT_AGENTS_DOWNLOAD_BASE_URL = "https://example.com/releases/latest/download"
-irm https://raw.githubusercontent.com/mkrtc/craft-agents-oss/main/scripts/install-app.ps1 | iex
+irm https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.ps1 | iex
 ```
 
 ### Official upstream install
@@ -131,8 +141,8 @@ instructions from [`craft-ai-agents/craft-agents-oss`](https://github.com/craft-
 ### Build this fork from Source
 
 ```bash
-git clone https://github.com/mkrtc/craft-agents-oss.git
-cd craft-agents-oss
+git clone https://github.com/mkrtc/mkrate.git
+cd mkrate
 bun install
 bun run electron:start
 ```
@@ -205,7 +215,7 @@ Use **SHIFT+TAB** to cycle through modes in the chat interface.
 
 ## Remote Server (Headless)
 
-Craft Agents can run as a headless server on a remote machine (e.g., a Linux VPS), with the desktop app connecting as a thin client. This lets you keep long-running sessions alive, access them from multiple machines, and run compute-heavy tasks on a powerful server.
+Mkrate can run as a headless server on a remote machine (e.g., a Linux VPS), with the desktop app connecting as a thin client. This lets you keep long-running sessions alive, access them from multiple machines, and run compute-heavy tasks on a powerful server.
 
 ### Quick Start
 
@@ -299,7 +309,7 @@ docker run -d \
 
 ## CLI Client
 
-A terminal client that connects to a running Craft Agent server over WebSocket (`ws://` or `wss://`). Use it for scripting, CI/CD pipelines, server validation, or when you prefer the command line.
+A terminal client that connects to a running Mkrate server over WebSocket (`ws://` or `wss://`). Use it for scripting, CI/CD pipelines, server validation, or when you prefer the command line.
 
 ### Installation
 
@@ -470,7 +480,7 @@ Go to **APIs & Services → Library** and enable the APIs you need:
 1. Go to **APIs & Services → OAuth consent screen**
 2. Select **External** user type (unless you have Google Workspace)
 3. Fill in required fields:
-   - App name: e.g., "My Craft Agent"
+   - App name: e.g., "My Mkrate"
    - User support email: your email
    - Developer contact: your email
 4. Add scopes (optional - can leave default)
@@ -482,11 +492,11 @@ Go to **APIs & Services → Library** and enable the APIs you need:
 1. Go to **APIs & Services → Credentials**
 2. Click **Create Credentials → OAuth Client ID**
 3. Application type: **Desktop app**
-4. Name: e.g., "Craft Agent Desktop"
+4. Name: e.g., "Mkrate Desktop"
 5. Click **Create**
 6. Note the **Client ID** and **Client Secret**
 
-#### 5. Configure in Craft Agent
+#### 5. Configure in Mkrate
 
 When setting up a Google source (Gmail, Calendar, Drive, YouTube, Search Console, etc.), add these fields to your source's `config.json`:
 
@@ -510,7 +520,7 @@ Or simply tell the agent you want to connect Gmail/Calendar/Drive - it will guid
 
 ## Supported LLM Providers
 
-Craft Agents supports multiple ways to connect to LLM providers:
+Mkrate supports multiple ways to connect to LLM providers:
 
 ### Direct Connections
 
@@ -534,7 +544,7 @@ Additional providers are supported through the **Claude / Anthropic API Key** co
 
 ### Architecture
 
-Craft Agents uses two agent backends:
+Mkrate uses two agent backends:
 
 - **Claude** — powered by the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), which natively supports custom base URLs and provider routing. Anthropic API key, Claude Max/Pro OAuth, and all third-party endpoints use this backend.
 - **Pi** — powered by the Pi SDK, which handles Google AI Studio, ChatGPT Plus (Codex OAuth), GitHub Copilot OAuth, and OpenAI API key connections. Pi connections route through their own provider infrastructure.
@@ -647,7 +657,7 @@ To launch the packaged app with verbose logging enabled, use `-- --debug` (note 
 
 **Windows (PowerShell):**
 ```powershell
-& "$env:LOCALAPPDATA\Programs\@craft-agentelectron\Craft Agents.exe" -- --debug
+& "$env:LOCALAPPDATA\Programs\Mkrate\Mkrate.exe" -- --debug
 ```
 
 **Linux:**
@@ -670,7 +680,11 @@ This project uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropi
 
 ### Trademark
 
-"Craft" and "Craft Agents" are trademarks of Craft Docs Ltd. See [TRADEMARK.md](TRADEMARK.md) for usage guidelines.
+Mkrate is an independent fork and is **not affiliated with, sponsored by, or endorsed by Craft Docs Ltd.**
+"Craft" and "Craft Agents" are trademarks of Craft Docs Ltd.; Mkrate uses them only for factual,
+nominative references to the upstream project it is based on. See [TRADEMARK.md](TRADEMARK.md) for
+the full policy and for why some internal identifiers (`@craft-agent/*`, `CRAFT_*`, `~/.craft-agent`,
+`craftagents://`) intentionally remain unchanged.
 
 ## Contributing
 

@@ -2,7 +2,7 @@
   "name": "craft-agent",
   "version": "0.11.23",
   "license": "Apache-2.0",
-  "description": "Claude Code-like agent for Craft documents",
+  "description": "Mkrate — a Claude Code-like desktop agent. Independent fork of Craft Agents.",
   "type": "module",
   "private": true,
   "trustedDependencies": [

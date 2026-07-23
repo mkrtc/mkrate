@@ -1,6 +1,6 @@
-# Craft Agents Electron App
+# Mkrate Electron App
 
-The primary desktop interface for Craft Agents, built with Electron + React. Provides a multi-session inbox with chat interface for interacting with Claude via Craft workspaces.
+The primary desktop interface for Mkrate (an independent fork of Craft Agents), built with Electron + React. Provides a multi-session inbox with chat interface for interacting with Claude via Craft workspaces.
 
 ## Quick Start
 
