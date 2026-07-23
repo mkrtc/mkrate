@@ -11,7 +11,7 @@
  * Text-based on purpose: runs without installing workspace dependencies.
  */
 import { describe, expect, it } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const electronDir = join(import.meta.dir, '..', '..')
@@ -20,6 +20,40 @@ const read = (...p: string[]) => readFileSync(join(...p), 'utf8')
 
 const builder = read(electronDir, 'electron-builder.yml')
 const pkg = JSON.parse(read(electronDir, 'package.json'))
+const localeDir = join(repoRoot, 'packages', 'shared', 'src', 'i18n', 'locales')
+
+// These keys describe official Craft integrations or the persisted provider name,
+// rather than the external Mkrate product identity.
+const OFFICIAL_CRAFT_LOCALE_KEYS = [
+  'editPopover.example.addSource',
+  'hints.reviewGitHubPRs',
+  'hints.summarizeGmail',
+  'onboarding.apiSetup.apiKeyDesc',
+  'onboarding.apiSetup.chatGPTPlusDesc',
+  'onboarding.apiSetup.craftAgentsBackend',
+  'onboarding.apiSetup.githubCopilotDesc',
+  'onboarding.apiSetup.piDesc',
+  'onboarding.reauth.expired',
+  'onboarding.reauth.loginWithCraft',
+].sort()
+
+describe('Mkrate locale product identity', () => {
+  const localeFiles = readdirSync(localeDir)
+    .filter((file) => file.endsWith('.json'))
+    .sort()
+
+  it('restricts Craft wording in every locale to reviewed official-integration keys', () => {
+    for (const file of localeFiles) {
+      const messages = JSON.parse(read(localeDir, file)) as Record<string, string>
+      const craftKeys = Object.entries(messages)
+        .filter(([, value]) => value.includes('Craft'))
+        .map(([key]) => key)
+        .sort()
+
+      expect(craftKeys).toEqual(OFFICIAL_CRAFT_LOCALE_KEYS)
+    }
+  })
+})
 
 describe('Mkrate product identity (electron-builder.yml)', () => {
   it('uses the Mkrate product name', () => {

@@ -147,7 +147,7 @@
   "chat.contextBadge": "Kontext-Badge",
   "chat.continueWith.action": "Mit einem anderen Anbieter fortfahren…",
   "chat.continueWith.connection": "Verbindung",
-  "chat.continueWith.contextNote": "Craft fasst diese Unterhaltung zusammen und übernimmt ihren Kontext in einen neuen Chat. Der ursprüngliche Chat bleibt unverändert.",
+  "chat.continueWith.contextNote": "Mkrate fasst diese Unterhaltung zusammen und übernimmt ihren Kontext in einen neuen Chat. Der ursprüngliche Chat bleibt unverändert.",
   "chat.continueWith.continue": "Fortfahren",
   "chat.continueWith.description": "Wählen Sie Verbindung und Modell für einen neuen Chat.",
   "chat.continueWith.genericError": "Die Fortsetzung konnte nicht erstellt werden.",

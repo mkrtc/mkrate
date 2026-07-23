@@ -147,7 +147,7 @@
   "chat.contextBadge": "Kontextus jelvény",
   "chat.continueWith.action": "Folytatás másik szolgáltatóval…",
   "chat.continueWith.connection": "Kapcsolat",
-  "chat.continueWith.contextNote": "A Craft összefoglalja ezt a beszélgetést, és átviszi a kontextusát egy új csevegésbe. Az eredeti csevegés nem változik.",
+  "chat.continueWith.contextNote": "A Mkrate összefoglalja ezt a beszélgetést, és átviszi a kontextusát egy új csevegésbe. Az eredeti csevegés nem változik.",
   "chat.continueWith.continue": "Folytatás",
   "chat.continueWith.description": "Válassz kapcsolatot és modellt az új csevegéshez.",
   "chat.continueWith.genericError": "Nem sikerült létrehozni a folytatást.",

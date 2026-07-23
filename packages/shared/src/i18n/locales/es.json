@@ -147,7 +147,7 @@
   "chat.contextBadge": "Insignia de contexto",
   "chat.continueWith.action": "Continuar con otro proveedor…",
   "chat.continueWith.connection": "Conexión",
-  "chat.continueWith.contextNote": "Craft resumirá esta conversación y llevará su contexto a un chat nuevo. El chat original no cambiará.",
+  "chat.continueWith.contextNote": "Mkrate resumirá esta conversación y llevará su contexto a un chat nuevo. El chat original no cambiará.",
   "chat.continueWith.continue": "Continuar",
   "chat.continueWith.description": "Elige la conexión y el modelo para un chat nuevo.",
   "chat.continueWith.genericError": "No se pudo crear la continuación.",

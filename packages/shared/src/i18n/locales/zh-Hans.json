@@ -147,7 +147,7 @@
   "chat.contextBadge": "上下文标记",
   "chat.continueWith.action": "使用其他提供商继续…",
   "chat.continueWith.connection": "连接",
-  "chat.continueWith.contextNote": "Craft 将总结此对话，并把上下文带入新聊天。原聊天不会被更改。",
+  "chat.continueWith.contextNote": "Mkrate 将总结此对话，并把上下文带入新聊天。原聊天不会被更改。",
   "chat.continueWith.continue": "继续",
   "chat.continueWith.description": "为新聊天选择连接和模型。",
   "chat.continueWith.genericError": "无法创建续聊。",

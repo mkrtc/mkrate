@@ -147,7 +147,7 @@
   "chat.contextBadge": "コンテキストバッジ",
   "chat.continueWith.action": "別のプロバイダーで続ける…",
   "chat.continueWith.connection": "接続",
-  "chat.continueWith.contextNote": "Craft がこの会話を要約し、コンテキストを新しいチャットに引き継ぎます。元のチャットは変更されません。",
+  "chat.continueWith.contextNote": "Mkrate がこの会話を要約し、コンテキストを新しいチャットに引き継ぎます。元のチャットは変更されません。",
   "chat.continueWith.continue": "続ける",
   "chat.continueWith.description": "新しいチャットで使用する接続とモデルを選択します。",
   "chat.continueWith.genericError": "続きのチャットを作成できませんでした。",
