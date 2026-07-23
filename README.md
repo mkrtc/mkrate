@@ -638,9 +638,11 @@ craftagents://action/new-chat                  # Create new session
 
 To launch the packaged app with verbose logging enabled, use `-- --debug` (note the double dash separator):
 
-**macOS:**
+**macOS (future packaged build only; unavailable today):**
 ```bash
-/Applications/Craft\ Agents.app/Contents/MacOS/Craft\ Agents -- --debug
+# Native macOS packaging is currently blocked. If it is restored and a Mkrate
+# macOS package is published, its debug command will be:
+# /Applications/Mkrate.app/Contents/MacOS/Mkrate -- --debug
 ```
 
 **Windows (PowerShell):**

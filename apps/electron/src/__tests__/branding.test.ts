@@ -189,6 +189,14 @@ describe('Mkrate assistant persona and co-author trailer', () => {
   it('preserves the factual Craft Agents Backend provider wording and SDK-detection marker', () => {
     expect(systemPrompt).toContain('craft_agent_environment')
   })
+
+  it('uses Mkrate for CLI display headings while retaining the craft-agent compatibility command', () => {
+    expect(systemPrompt).toContain('| Mkrate CLI |')
+    expect(systemPrompt).toContain('## Mkrate CLI')
+    expect(systemPrompt).toContain('craft-agent')
+    expect(systemPrompt).not.toContain('| Craft CLI |')
+    expect(systemPrompt).not.toContain('## Craft Agent CLI')
+  })
 })
 
 describe('README makes no live binary/install/update claim', () => {
@@ -205,6 +213,12 @@ describe('README makes no live binary/install/update claim', () => {
 
   it('keeps macOS native packaging explicitly blocked', () => {
     expect(readme).toMatch(/macOS[^\n]*packaging[^\n]*blocked/i)
+  })
+
+  it('does not present the old Craft macOS app path as an available command', () => {
+    expect(readme).not.toContain('/Applications/Craft\\ Agents.app')
+    expect(readme).toContain('macOS (future packaged build only; unavailable today)')
+    expect(readme).toContain('/Applications/Mkrate.app/Contents/MacOS/Mkrate -- --debug')
   })
 })
 
