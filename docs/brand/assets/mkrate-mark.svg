@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Mkrate mark">
+  <title>Mkrate mark</title>
+  <path d="M7 25 L7 7 L16 18 L25 7 L25 25" fill="none" stroke="#2452FF" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="7" cy="25" r="2.6" fill="#2452FF"/>
+  <circle cx="7" cy="7" r="2.6" fill="#2452FF"/>
+  <circle cx="25" cy="7" r="2.6" fill="#2452FF"/>
+  <circle cx="25" cy="25" r="2.6" fill="#2452FF"/>
+  <circle cx="16" cy="18" r="3.4" fill="#7C5CFF"/>
+</svg>

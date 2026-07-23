@@ -397,7 +397,7 @@ ELECTRON_CACHE_ALT="$HOME/.cache/Mkrate"
 # Verify AppImage exists
 if [ ! -f "$APPIMAGE_PATH" ]; then
     echo "Error: Mkrate not found at $APPIMAGE_PATH"
-    echo "Reinstall: curl -fsSL https://mkrate.ru/install-app.sh | bash"
+    echo "Reinstall: curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh | bash"
     exit 1
 fi
 

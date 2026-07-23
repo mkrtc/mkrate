@@ -1,16 +1,16 @@
 import type { ComponentEntry } from './types'
-import { CraftAgentsLogo } from '@/components/icons/CraftAgentsLogo'
-import { CraftAgentsSymbol } from '@/components/icons/CraftAgentsSymbol'
+import { MkrateLogo } from '@/components/icons/MkrateLogo'
+import { MkrateSymbol } from '@/components/icons/MkrateSymbol'
 import { PanelLeftRounded } from '@/components/icons/PanelLeftRounded'
 import { SquarePenRounded } from '@/components/icons/SquarePenRounded'
 
 export const iconComponents: ComponentEntry[] = [
   {
-    id: 'craft-agents-logo',
-    name: 'CraftAgentsLogo',
+    id: 'mkrate-logo',
+    name: 'MkrateLogo',
     category: 'Icons',
-    description: 'Full Craft Agents branding logo with text',
-    component: CraftAgentsLogo,
+    description: 'Mkrate five-node "M" graph mark, full brand color',
+    component: MkrateLogo,
     props: [
       {
         name: 'className',
@@ -26,11 +26,11 @@ export const iconComponents: ComponentEntry[] = [
     ],
   },
   {
-    id: 'craft-agents-symbol',
-    name: 'CraftAgentsSymbol',
+    id: 'mkrate-symbol',
+    name: 'MkrateSymbol',
     category: 'Icons',
-    description: 'Craft Agents "E" pixel art symbol icon (brand color: #9570BE)',
-    component: CraftAgentsSymbol,
+    description: 'Mkrate five-node "M" graph mark, single-color (inherits currentColor)',
+    component: MkrateSymbol,
     props: [
       {
         name: 'className',

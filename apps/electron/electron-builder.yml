@@ -86,11 +86,20 @@ asar: false
 
 mac:
   category: public.app-category.productivity
-  icon: resources/icon.icns
-  # macOS 26+ Liquid Glass: Tell macOS to look for icon in Assets.car
-  # The value must match --app-icon used in actool (see afterPack.js)
+  # DEFERRED — macOS production packaging is BLOCKED in this phase.
+  # The old Craft `icon.icns`, `Assets.car` (Liquid Glass), and `icon.icon` asset
+  # catalog were removed with the rebrand; native macOS icon containers must be
+  # regenerated on macOS (iconutil / actool) from the approved Mkrate SVG in
+  # docs/brand/assets/ before ANY macOS binary is released. See
+  # ../../docs/branding/icon-inventory.md and scripts/afterPack.cjs.
+  # `icon` points at the platform-neutral Mkrate PNG so local/dev builds resolve a
+  # valid derived icon; it is NOT a Liquid-Glass-ready release asset. Do not ship
+  # macOS builds from this phase.
+  icon: resources/icon.png
+  # macOS 26+ Liquid Glass (CFBundleIconName + Assets.car) is intentionally
+  # disabled until the native asset catalog is regenerated on macOS:
+  #   CFBundleIconName: AppIcon
   extendInfo:
-    CFBundleIconName: AppIcon
     # Required for macOS to list the app under Privacy & Security > Local Network
     # and prompt for permission. Without it the app is silently denied LAN access
     # and never appears in the privacy pane (craft-agents-oss#938).
@@ -138,10 +147,10 @@ mac:
 dmg:
   # Use predictable naming: Mkrate-arm64.dmg, Mkrate-x64.dmg
   artifactName: "Mkrate-${arch}.dmg"
-  # Custom background (multi-resolution TIFF with 1x+2x for retina support)
-  background: resources/dmg-background.tiff
-  # Use app icon as the mounted volume icon in Finder
-  icon: resources/icon.icns
+  # DEFERRED (see mac: block). The old Craft DMG background and `.icns` volume
+  # icon were removed with the rebrand; a branded Mkrate DMG background and native
+  # `.icns` volume icon must be produced on macOS before any macOS DMG is shipped.
+  # electron-builder falls back to a plain background / default volume icon here.
   iconSize: 80
   title: "Mkrate"
   contents:
@@ -200,7 +209,9 @@ nsis:
 linux:
   icon: resources/icon.png
   category: Utility
-  maintainer: "Mkrate <support@mkrate.ru>"
+  # Packaging metadata only. Uses a non-deliverable GitHub noreply address (no
+  # support@ inbox is operated); contact/issues live at github.com/mkrtc/mkrate.
+  maintainer: "Mkrate <mkrtc@users.noreply.github.com>"
   target:
     - target: AppImage
       arch:

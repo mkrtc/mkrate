@@ -1,5 +1,14 @@
 #!/bin/bash
-# Generate app icons for all platforms from a source PNG
+# macOS-only icon generator (uses `sips` + `iconutil`, Apple tooling).
+#
+# For Linux/Windows/platform-neutral icons, use `generate-icons-linux.sh`
+# (ImageMagick, no Apple tooling) — that is the script used for this rebrand.
+#
+# This script is retained as the documented path to regenerate the DEFERRED
+# macOS `icon.icns` from the approved Mkrate source once run on a Mac. macOS
+# production packaging remains blocked until that native asset is generated and
+# validated. Default source is the Mkrate `source.png` (1024×1024).
+#
 # Usage: ./generate-icons.sh source.png
 
 set -e
@@ -71,6 +80,8 @@ echo "✅ Icons generated:"
 ls -la icon.*
 
 echo ""
-echo "Next steps:"
-echo "1. Update apps/electron/src/main/index.ts to use icon.icns on macOS"
-echo "2. Run: bun run electron:build:resources"
+echo "Next steps (macOS release enablement — currently deferred):"
+echo "1. Recreate resources/icon.icon/ from docs/brand/assets/mkrate-icon-square.svg"
+echo "   and recompile Assets.car (see apps/electron/scripts/afterPack.cjs)."
+echo "2. Restore the icon.icns / CFBundleIconName references in electron-builder.yml."
+echo "3. Run: bun run electron:build:resources"

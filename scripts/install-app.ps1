@@ -1,5 +1,5 @@
 # Mkrate Windows Installer
-# Usage: irm https://mkrate.ru/install-app.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.ps1 | iex
 
 & {
 $ErrorActionPreference = "Stop"

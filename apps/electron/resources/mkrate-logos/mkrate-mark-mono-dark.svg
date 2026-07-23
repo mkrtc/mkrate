@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Mkrate mark, monochrome dark">
+  <title>Mkrate mark — monochrome dark (for light backgrounds)</title>
+  <path d="M7 25 L7 7 L16 18 L25 7 L25 25" fill="none" stroke="#0A0F1F" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="7" cy="25" r="2.6" fill="#0A0F1F"/>
+  <circle cx="7" cy="7" r="2.6" fill="#0A0F1F"/>
+  <circle cx="25" cy="7" r="2.6" fill="#0A0F1F"/>
+  <circle cx="25" cy="25" r="2.6" fill="#0A0F1F"/>
+  <circle cx="16" cy="18" r="3.4" fill="#0A0F1F"/>
+</svg>

@@ -1,80 +1,91 @@
-# Craft Visual Asset Inventory (for Task E — brand asset replacement)
+# Visual Asset Inventory & Rebrand Closure (Task E)
 
-> Status: **Phase-1 external rebrand (this task) intentionally did NOT modify any visual/icon
-> assets.** The files below still carry Craft branding and must be replaced with Mkrate brand assets
-> by the dedicated design/asset task (Task E). Do not assume any icon is already rebranded.
+> Status: **Task E complete.** Every Craft product logo/icon/brand image in the working tree
+> has been replaced with Mkrate brand assets or removed. macOS native icon containers
+> (`.icns`, `Assets.car`) are intentionally **not** regenerated in this phase — macOS
+> production packaging is **blocked/deferred** until they are produced natively on macOS.
+> Canonical brand sources, guidelines, license, and the asset manifest live in
+> [`../brand/`](../brand/).
 
-This inventory lists every Craft logo/icon/brand image asset in the working tree so Task E can
-replace or delete them. Text-based, product-facing strings were rebranded to **Mkrate** in Phase 1;
-only **binary images and source-embedded logo art/SVGs** remain to be replaced here.
+## Brand source integration
+
+- `docs/brand/` — canonical brand home: `README.md`, `brand-guidelines.md`,
+  `asset-manifest.json`, and `assets/` (all mark/wordmark/lockup/icon SVGs + rendered PNGs).
+- `apps/electron/resources/mkrate-logos/` — in-repo raster/vector copies (replaces the deleted
+  `craft-logos/`).
 
 ## 1. Application icons (packaged app)
 
-| File | Type | Used by |
-|---|---|---|
-| `apps/electron/resources/icon.icns` | macOS app icon (multi-res, 178 KB) | `electron-builder.yml` → `mac.icon`, `dmg.icon` |
-| `apps/electron/resources/icon.ico` | Windows app icon (108 KB) | `electron-builder.yml` → `win.icon` |
-| `apps/electron/resources/icon.png` | Linux app icon (512×512, 22 KB) | `electron-builder.yml` → `linux.icon` |
-| `apps/electron/resources/icon.svg` | Source SVG for the app icon | icon generation source |
-| `apps/electron/resources/Assets.car` | Compiled macOS 26 Liquid Glass icon (18 KB) | copied into the bundle by `scripts/afterPack.cjs` (references `Mkrate.app` after rebrand) |
-| `apps/electron/resources/icon.icon/icon.json` | macOS asset-catalog manifest | `actool` source for `Assets.car` (see `afterPack.cjs` header) |
-| `apps/electron/resources/icon.icon/Assets/icon.svg` | Asset-catalog source SVG | compiled into `Assets.car` |
+| File | Status |
+|---|---|
+| `apps/electron/resources/icon.svg` | **Replaced** → Mkrate app-icon source (`mkrate-icon-square.svg`). |
+| `apps/electron/resources/icon.png` | **Replaced** → 512×512 Mkrate app icon. |
+| `apps/electron/resources/icon.ico` | **Regenerated** on Linux (ImageMagick) → multi-res 16–256 Mkrate, alpha preserved. |
+| `apps/electron/resources/source.png` | **Replaced** → 1024×1024 Mkrate app icon (generator source). |
+| `apps/electron/resources/icon.icns` | **Removed** (Craft macOS icon). macOS `.icns` deferred. |
+| `apps/electron/resources/Assets.car` | **Removed** (Craft Liquid Glass catalog). Deferred. |
+| `apps/electron/resources/icon.icon/` | **Removed** (Craft asset-catalog source + manifest). Deferred. |
 
-**Regeneration note:** after replacing `icon.icon/Assets/icon.svg`, recompile `Assets.car` with the
-`xcrun actool` command documented at the top of `apps/electron/scripts/afterPack.cjs`.
+**macOS regeneration (deferred):** recreate `resources/icon.icon/` from
+`docs/brand/assets/mkrate-icon-square.svg`, recompile `Assets.car`, and regenerate `icon.icns`
+on macOS (see `apps/electron/scripts/afterPack.cjs` and `resources/generate-icons.sh`), then
+restore the `mac.icon` / `CFBundleIconName` / `dmg.icon` references in `electron-builder.yml`.
+Until then `electron-builder.yml` points `mac.icon` at the platform-neutral PNG and
+`afterPack.cjs` emits a loud "do not release macOS build" warning.
+
+**Linux/Windows regeneration:** `apps/electron/resources/generate-icons-linux.sh`
+(ImageMagick, no Apple tooling) reproduces `icon.png` / `icon.ico` / `source.png` / `icon.svg`
+from the approved brand PNGs.
 
 ## 2. Installer / DMG imagery
 
-| File | Type | Used by |
-|---|---|---|
-| `apps/electron/resources/dmg-background.tiff` | macOS DMG background, multi-res retina (12 MB) | `electron-builder.yml` → `dmg.background` |
-| `apps/electron/resources/dmg-background.png` | DMG background 1× source | source for the TIFF |
-| `apps/electron/resources/dmg-background@2x.png` | DMG background 2× source | source for the TIFF |
-
-## 3. Craft logo image files
-
-| File | Type |
+| File | Status |
 |---|---|
-| `apps/electron/resources/craft-logos/craft_app_icon.png` | App-icon raster (light) |
-| `apps/electron/resources/craft-logos/craft_app_icon_dark.png` | App-icon raster (dark) |
-| `apps/electron/resources/craft-logos/craft_logo_black.png` | Wordmark/logo (black) |
-| `apps/electron/resources/craft-logos/craft_logo_white.png` | Wordmark/logo (white) |
-| `apps/electron/src/renderer/assets/craft_logo_c.svg` | Stylized "C" logo (renderer asset) |
-| `apps/electron/resources/tool-icons/craft-agent.svg` | Tool-icon registry entry for the app itself |
+| `apps/electron/resources/dmg-background.tiff` | **Removed** (Craft DMG art). |
+| `apps/electron/resources/dmg-background.png` | **Removed**. |
+| `apps/electron/resources/dmg-background@2x.png` | **Removed**. |
 
-> The entire `apps/electron/resources/craft-logos/` directory is Craft branding. Task E should
-> replace or delete it. **Do not delete in Phase 1.**
+DMG packaging is macOS-only and deferred; `dmg.background` / `dmg.icon` references were removed
+from `electron-builder.yml` (electron-builder falls back to defaults). A branded Mkrate DMG
+background must be produced before any macOS DMG is shipped.
+
+## 3. Logo image files
+
+| Old file | Status |
+|---|---|
+| `apps/electron/resources/craft-logos/` (whole dir) | **Removed**, replaced by `resources/mkrate-logos/` (Mkrate app-icon PNG + mark SVGs). |
+| `apps/electron/src/renderer/assets/craft_logo_c.svg` | **Removed**, replaced by `assets/mkrate_app_icon.svg`. |
+| `apps/electron/resources/tool-icons/craft-agent.svg` | **Removed**, replaced by `tool-icons/mkrate-agent.svg`; `tool-icons.json` displayName → "Mkrate", icon → `mkrate-agent.svg`. The `id`/`commands` (`craft-agent`) are a preserved hidden compatibility identifier and are unchanged. |
 
 ## 4. Source-embedded logo art / React SVG logo components
 
-These render Craft logo art directly from source (not standalone image files). Task E must replace
-the SVG paths / art with Mkrate equivalents.
-
-| File | What it is | Notable consumers |
+| Old | New | Notes |
 |---|---|---|
-| `packages/shared/src/branding.ts` | `CRAFT_LOGO` / `CRAFT_LOGO_HTML` — ASCII-art block logo | OAuth callback page (`packages/shared/src/auth/callback-page.ts` renders `CRAFT_LOGO_HTML`; the page's text title/link were rebranded to Mkrate in Phase 1, the ASCII art was left for Task E) |
-| `apps/electron/src/renderer/components/icons/CraftAgentsLogo.tsx` | React SVG full logo | splash / onboarding / menus |
-| `apps/electron/src/renderer/components/icons/CraftAgentsSymbol.tsx` | React SVG "E" pixel-art symbol | app UI |
-| `apps/electron/src/renderer/components/icons/CraftAppIcon.tsx` | React SVG app icon | app UI |
-| `apps/electron/src/renderer/components/SplashScreen.tsx` | Splash screen using the logo components | app launch |
-| `apps/electron/src/renderer/components/onboarding/*` (WelcomeStep, ProviderSelectStep, ReauthScreen, CompletionStep) | Onboarding screens using logo components | onboarding |
-| `apps/electron/src/renderer/components/app-menu/{DesktopAppMenu,MobileAppMenu}.tsx` | App menus using logo components | app menus |
-| `packages/ui/src/components/chat/SessionViewer.tsx` | Uses a logo component | session viewer |
-| `apps/viewer/src/components/Header.tsx` | `CraftAgentLogo` inline SVG (viewer web app) | viewer header (visible text title rebranded to Mkrate in Phase 1; the SVG art was left for Task E) |
-| `apps/electron/src/renderer/playground/registry/icons.tsx` | Playground icon registry entries/descriptions | internal design playground only |
+| `icons/CraftAgentsLogo.tsx` (`CraftAgentsLogo`) | `icons/MkrateLogo.tsx` (`MkrateLogo`) | Full-color five-node "M" graph mark. |
+| `icons/CraftAgentsSymbol.tsx` (`CraftAgentsSymbol`) | `icons/MkrateSymbol.tsx` (`MkrateSymbol`) | Single-color mark (`currentColor`, inherits `text-accent`). |
+| `icons/CraftAppIcon.tsx` (`CraftAppIcon`) | `icons/MkrateAppIcon.tsx` (`MkrateAppIcon`) | `<img>` of `mkrate_app_icon.svg`. |
+| inline `CraftAgentLogo` in `apps/viewer/src/components/Header.tsx` | inline `MkrateLogo` | Art swapped to the Mkrate mark; brand blue. |
+| inline `CraftAgentLogo` in `packages/ui/src/components/chat/SessionViewer.tsx` | inline `MkrateLogo` | Art swapped to the Mkrate mark; brand blue. |
+| `packages/shared/src/branding.ts` (`CRAFT_LOGO`/`CRAFT_LOGO_HTML`) | `MKRATE_LOGO`/`MKRATE_LOGO_HTML` | ASCII "M" graph mark; single consumer `auth/callback-page.ts` updated. |
+| `playground/registry/icons.tsx` | updated | Ids/descriptions rebranded (internal design playground). |
+
+Consumers updated: `SplashScreen`, onboarding (`WelcomeStep`, `ProviderSelectStep`,
+`ReauthScreen`, `CompletionStep`), app menus (`DesktopAppMenu`, `MobileAppMenu`),
+`PlaygroundApp`, `playground/registry/icons.tsx`.
 
 ## 5. WebUI favicons
 
-| File | Type |
+| File | Status |
 |---|---|
-| `apps/webui/src/public/favicon.svg` | WebUI favicon (vector) |
-| `apps/webui/src/public/favicon.ico` | WebUI favicon (fallback) |
+| `apps/webui/src/public/favicon.svg` | **Replaced** → Mkrate app-icon (dark plate, white mark, violet hub). |
+| `apps/webui/src/public/favicon.ico` | **Regenerated** (16+32 Mkrate). |
 
-## Notes for Task E
+## Preserved (not visual identity — do not "rebrand")
 
-- After swapping raster icons, re-verify `electron-builder.yml` icon paths still resolve.
-- After swapping `icon.icon/Assets/icon.svg`, recompile `Assets.car` (see §1).
-- The React SVG logo components in §4 are the in-app runtime logos; replacing the standalone image
-  files alone will **not** change what users see inside the running app.
-- `packages/shared/src/branding.ts` is a source file but functions as a **visual asset** (ASCII
-  logo); Phase 1 left it untouched by design.
+- `VIEWER_URL = https://agents.craft.do` — live Craft-hosted session-viewer service this fork
+  integrates with (session sharing + WebUI OAuth redirect). External integration endpoint, not
+  Mkrate branding.
+- Hidden compatibility identifiers: `@craft-agent/*` package scopes, `CRAFT_*` env vars,
+  `~/.craft-agent` config dir, `craftagents://` deep-link scheme, the `craft-agent` tool id/command,
+  and the legacy `Craft Agents Backend` provider label. These are intentionally unchanged and not
+  advertised. See `apps/electron/src/__tests__/branding.test.ts`.

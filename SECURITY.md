@@ -8,7 +8,14 @@ We take security seriously. If you discover a security vulnerability in Mkrate, 
 
 **Please do NOT report security vulnerabilities through public GitHub issues.**
 
-Instead, please send an email to: **security@mkrate.ru**
+Instead, report privately through GitHub's private vulnerability reporting:
+
+- Open **[github.com/mkrtc/mkrate](https://github.com/mkrtc/mkrate) → Security → Advisories → "Report a vulnerability"**, or go directly to
+  **<https://github.com/mkrtc/mkrate/security/advisories/new>**.
+
+This keeps the report private to the maintainers until a fix is available. (No
+dedicated security mailbox is operated for this project — please use the GitHub
+private advisory flow above rather than email.)
 
 Include the following information:
 - Description of the vulnerability
@@ -18,9 +25,11 @@ Include the following information:
 
 ### What to Expect
 
-- **Acknowledgment**: We will acknowledge receipt within 48 hours
-- **Initial Assessment**: We will provide an initial assessment within 7 days
-- **Resolution Timeline**: We aim to resolve critical issues within 30 days
+- **Acknowledgment**: We aim to acknowledge receipt within a few days
+- **Initial Assessment**: We aim to provide an initial assessment within ~7 days
+- **Resolution Timeline**: We aim to resolve critical issues as quickly as we can
+
+(This is a community-maintained fork; these are best-effort targets, not guarantees.)
 
 ### Scope
 

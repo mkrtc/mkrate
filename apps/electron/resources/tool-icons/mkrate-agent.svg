@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Mkrate">
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#0A0F1F"/>
+  <path d="M16.25 47.75 L16.25 16.25 L32 35.5 L47.75 16.25 L47.75 47.75" fill="none" stroke="#FFFFFF" stroke-width="5.9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16.25" cy="47.75" r="4.6" fill="#FFFFFF"/>
+  <circle cx="16.25" cy="16.25" r="4.6" fill="#FFFFFF"/>
+  <circle cx="47.75" cy="16.25" r="4.6" fill="#FFFFFF"/>
+  <circle cx="47.75" cy="47.75" r="4.6" fill="#FFFFFF"/>
+  <circle cx="32" cy="35.5" r="5.9" fill="#7C5CFF"/>
+</svg>
