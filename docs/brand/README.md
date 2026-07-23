@@ -4,7 +4,10 @@ Durable home for the **Mkrate** visual identity (Mkrate Desktop, Mkrate Relay, M
 Mobile). The mark is a five-node orchestration graph that doubles as the letter "M." Full
 rationale, palette, contrast data, and usage rules live in
 [`brand-guidelines.md`](./brand-guidelines.md); every shipped file is catalogued with
-dimensions and SHA-256 in [`asset-manifest.json`](./asset-manifest.json).
+dimensions and SHA-256 in [`asset-manifest.json`](./asset-manifest.json). Manifest
+`files[].file`, `renderedFrom`, and `sourceOf` paths are relative to `docs/brand/`;
+`repositoryOutputs[].path` is relative to the repository root, while its `derivedFrom`
+references use the same `docs/brand/`-relative canonical paths.
 
 ## Assets
 
