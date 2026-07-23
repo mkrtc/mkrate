@@ -103,7 +103,7 @@ describe('workspace slug extraction', () => {
   })
 
   it('handles Windows-style paths with backslashes', () => {
-    expect(extractWorkspaceSlug('C:\\Users\\ghalmos\\.craft-agent\\workspaces\\my-workspace', fallback)).toBe('my-workspace')
+    expect(extractWorkspaceSlug('C:\\Users\\tester\\.craft-agent\\workspaces\\my-workspace', fallback)).toBe('my-workspace')
   })
 
   it('handles Windows paths with tilde and backslashes', () => {

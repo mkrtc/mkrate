@@ -138,16 +138,17 @@ For `startupRecovery`:
 
 ## 4) Verification outcomes snapshot (authoritative)
 
-- `/home/mkrtc/.bun/bin/bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts`: `92 pass` / `3 fail` / `0 error` (95 tests). Named failures: symlink containment, stale-backup mutation under EACCES, and two-process same-revision acknowledgement.
-- `/home/mkrtc/.bun/bin/bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts`: **NOT RUN in this doc correction pass**.
-- `/home/mkrtc/.bun/bin/bun test packages/server/src/__tests__/smoke.test.ts`: **NOT RUN in this doc correction pass**.
-- `/home/mkrtc/.bun/bin/bun test packages/session-tools-core/src/**/*.test.ts`: **NOT RUN in this doc correction pass**.
-- `/home/mkrtc/.bun/bin/bun test packages/server-core/src/**/*.test.ts`: **NOT RUN in this doc correction pass**.
+- `bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts`: `92 pass` / `3 fail` / `0 error` (95 tests). Named failures: symlink containment, stale-backup mutation under EACCES, and two-process same-revision acknowledgement.
+- `bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts`: **NOT RUN in this doc correction pass**.
+- `bun test packages/server/src/__tests__/smoke.test.ts`: **NOT RUN in this doc correction pass**.
+- `bun test packages/session-tools-core/src/**/*.test.ts`: **NOT RUN in this doc correction pass**.
+- `bun test packages/server-core/src/**/*.test.ts`: **NOT RUN in this doc correction pass**.
 - `historical auditor run, exact command unavailable; not acceptable as future gate`: `98 pass` / `8 fail` / `4 error` across `106 tests`, with additional failures from missing dependencies and setup mismatch.
 - **No scanner command exists as a dedicated script in this repository.** Use fallback check below for manual reproducibility:
 
+Run from the repository root:
+
 ```bash
-cd /home/mkrtc/Desktop/projects/worktrees/craft-agents-oss-memory-connections && \
 grep -RInE --ignore-case --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build \
   "AKIA[0-9A-Z]{16}|api[_-]?key|bearer[[:space:]][A-Za-z0-9._-]+|secret|password" .
 ```

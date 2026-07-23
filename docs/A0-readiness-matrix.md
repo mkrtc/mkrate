@@ -45,26 +45,26 @@
 ### Required command families and intended outcomes
 
 ```bash
-/home/mkrtc/.bun/bin/bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts
-/home/mkrtc/.bun/bin/bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts
-/home/mkrtc/.bun/bin/bun test packages/server/src/__tests__/smoke.test.ts
-/home/mkrtc/.bun/bin/bun test packages/session-tools-core/src/**/*.test.ts
-/home/mkrtc/.bun/bin/bun test packages/server-core/src/**/*.test.ts
-/home/mkrtc/.bun/bin/bun run typecheck:all
-/home/mkrtc/.bun/bin/bun run validate:ci
-/home/mkrtc/.bun/bin/bun run lint
+bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts
+bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts
+bun test packages/server/src/__tests__/smoke.test.ts
+bun test packages/session-tools-core/src/**/*.test.ts
+bun test packages/server-core/src/**/*.test.ts
+bun run typecheck:all
+bun run validate:ci
+bun run lint
 ```
 
 ### Command outcomes (known)
 
 - Targeted project-memory connection command above: **95 tests** | **92 pass** | **3 fail** | **0 error**. Named failures: symlink containment, stale-backup mutation under EACCES, and two-process same-revision acknowledgement.
-- `/home/mkrtc/.bun/bin/bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts`: **NOT RUN in this task**
-- `/home/mkrtc/.bun/bin/bun test packages/server/src/__tests__/smoke.test.ts`: **NOT RUN in this task**
-- `/home/mkrtc/.bun/bin/bun test packages/session-tools-core/src/**/*.test.ts`: **NOT RUN in this task**
-- `/home/mkrtc/.bun/bin/bun test packages/server-core/src/**/*.test.ts`: **NOT RUN in this task**
-- `/home/mkrtc/.bun/bin/bun run typecheck:all`: **NOT RUN in this task**
-- `/home/mkrtc/.bun/bin/bun run validate:ci`: **NOT RUN in this task**
-- `/home/mkrtc/.bun/bin/bun run lint`: **NOT RUN in this task**
+- `bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts`: **NOT RUN in this task**
+- `bun test packages/server/src/__tests__/smoke.test.ts`: **NOT RUN in this task**
+- `bun test packages/session-tools-core/src/**/*.test.ts`: **NOT RUN in this task**
+- `bun test packages/server-core/src/**/*.test.ts`: **NOT RUN in this task**
+- `bun run typecheck:all`: **NOT RUN in this task**
+- `bun run validate:ci`: **NOT RUN in this task**
+- `bun run lint`: **NOT RUN in this task**
 - **Prior provided audit aggregate:** **98 pass / 8 fail / 4 error** across **106 tests**, with additional setup/load failures; command is **`historical auditor run, exact command unavailable; not acceptable as future gate`**.
 
 ### Credential/backend/session-tools/server-core scanner
@@ -72,8 +72,9 @@
 - There is no dedicated project scanner script/command currently defined in this repo.
 - Concrete manual fallback for reproducible secret/keyword scanning (when scanner is unavailable):
 
+Run from the repository root:
+
 ```bash
-cd /home/mkrtc/Desktop/projects/worktrees/craft-agents-oss-memory-connections && \
 grep -RInE --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build \
   "AKIA[0-9A-Z]{16}|[Aa][Pp][Ii][_\-]?[Kk][Ee][Yy]|[Bb][Ee][Aa][Rr][Ee][Rr][[:space:]][A-Za-z0-9._-]+|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]" .
 ```
