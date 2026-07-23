@@ -23,7 +23,7 @@
 - **Settings UI for label-bound skills**: manage label/skill bindings from Settings with searchable label and skill selectors.
 - **Improved role UX**: active label-bound skills are surfaced as actual roles while preserving explicit `[skill:slug]` behavior.
 - **Chat scroll-to-bottom control**: adds a down-button in the input-zone top row next to the `Info` button.
-- **Mkrate update feed**: packaged builds and install scripts pull updates from Mkrate's GitHub Releases at [`mkrtc/mkrate`](https://github.com/mkrtc/mkrate/releases/latest).
+- **Mkrate update feed (planned, not yet live)**: the install scripts and updater are wired to read from Mkrate's GitHub Releases at `mkrtc/mkrate`, but **no Mkrate release has been published yet**, so that feed is currently inactive. See [Installation](#installation).
 
 > [!NOTE]
 > Some internal identifiers are intentionally **unchanged** for drop-in compatibility with existing
@@ -92,60 +92,48 @@ Yes. That's the core idea behind agent-native software. You describe what you wa
 
 ## Installation
 
-### One-Line Install from this fork (Recommended)
+> [!IMPORTANT]
+> **There are no published Mkrate binaries, installers, or releases yet.**
+> Mkrate does **not** currently ship a prebuilt desktop app, a one-line installer, or a live
+> update feed, and the `mkrtc/mkrate` GitHub repository/Releases page referenced throughout this
+> README is **not yet public**. The only supported way to run Mkrate today is to
+> **[build it from source](#build-this-fork-from-source)**.
+>
+> macOS is additionally gated: **native macOS packaging (app bundle, code signing, and `.icns`
+> icons) is intentionally blocked** and has not been regenerated for Mkrate, so no macOS build can
+> be produced or shipped in this state.
 
-The install scripts below download the latest published desktop release from
-[`mkrtc/mkrate`](https://github.com/mkrtc/mkrate/releases/latest).
+### Prebuilt install (not available yet)
 
-**macOS:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh | bash
-```
-
-**Linux:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh | bash
-```
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.ps1 | iex
-```
-
-By default, these scripts read updater manifests and artifacts from:
-
-```txt
-https://github.com/mkrtc/mkrate/releases/latest/download
-```
-
-For staging or custom feeds, override the release asset base URL:
-
-```bash
-CRAFT_AGENTS_DOWNLOAD_BASE_URL=https://example.com/releases/latest/download \
-  bash <(curl -fsSL https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.sh)
-```
-
-```powershell
-$env:CRAFT_AGENTS_DOWNLOAD_BASE_URL = "https://example.com/releases/latest/download"
-irm https://raw.githubusercontent.com/mkrtc/mkrate/main/scripts/install-app.ps1 | iex
-```
+When a desktop release is eventually published, the repository already contains install scripts
+(`scripts/install-app.sh`, `scripts/install-app.ps1`) and an updater wired to read artifacts from
+Mkrate's GitHub Releases at `mkrtc/mkrate`. **Those release URLs are planned intent, not a live
+download** — until a release is actually cut and the repository is public, the install scripts have
+nothing to fetch and are not expected to work. No copy-paste installer command is offered here on
+purpose.
 
 ### Official upstream install
 
-For the official upstream Craft Agents build, use the upstream project and install
+For an official, prebuilt Craft Agents build, use the upstream project and its install
 instructions from [`craft-ai-agents/craft-agents-oss`](https://github.com/craft-ai-agents/craft-agents-oss).
 
 ### Build this fork from Source
 
+Building from source requires [Bun](https://bun.sh/). From a checkout of this repository
+(the `mkrtc/mkrate` remote is not yet public, so clone it once it is available, or work from
+your existing local copy):
+
 ```bash
-git clone https://github.com/mkrtc/mkrate.git
+# once the repository is published you'll be able to clone it:
+#   git clone https://github.com/mkrtc/mkrate.git
 cd mkrate
 bun install
 bun run electron:start
 ```
+
+> [!NOTE]
+> `electron:start` runs the app from source on Linux and Windows. It does **not** produce a
+> distributable installer, and macOS packaging remains blocked (see the note above).
 
 ## Features
 

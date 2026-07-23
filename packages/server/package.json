@@ -14,11 +14,10 @@
     "bun": ">=1.0.0"
   },
   "author": {
-    "name": "Craft Docs Ltd.",
-    "email": "support@craft.do"
+    "name": "Mkrate contributors"
   },
   "license": "Apache-2.0",
-  "homepage": "https://agents.craft.do",
+  "homepage": "https://mkrate.ru",
   "scripts": {
     "start": "bun run src/index.ts",
     "generate-token": "bun run src/index.ts --generate-token",

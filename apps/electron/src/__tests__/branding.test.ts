@@ -118,21 +118,93 @@ describe('afterPack references the Mkrate .app bundle name', () => {
   })
 })
 
-describe('release workflow rebrand (security checks preserved)', () => {
-  const workflow = read(repoRoot, '.github', 'workflows', 'electron-release.yml')
+describe('release is source-only (no active publisher in .github/workflows)', () => {
+  const workflowsDir = join(repoRoot, '.github', 'workflows')
+  const workflowFiles = readdirSync(workflowsDir).filter(
+    (file) => file.endsWith('.yml') || file.endsWith('.yaml'),
+  )
 
-  it('uses Mkrate release titles and artifact names, not Craft', () => {
-    expect(workflow).toContain('Mkrate $RELEASE_TAG')
-    expect(workflow).toContain('Mkrate-x64.exe')
-    expect(workflow).toContain('Mkrate-arm64.dmg')
-    expect(workflow).not.toContain('Craft-Agents-')
-    expect(workflow).not.toContain('Craft Agents ')
+  it('does not ship the electron-release publisher workflow', () => {
+    // History preserves it for a future, separately-approved release-readiness phase; the
+    // current tree must contain no active tag/manual release-publishing workflow.
+    expect(workflowFiles).not.toContain('electron-release.yml')
   })
 
-  it('keeps the asset-name allowlist and checksum verification', () => {
-    expect(workflow).toContain('[A-Za-z0-9._-]')
-    expect(workflow).toContain('sha512')
-    expect(workflow).toContain('createHash')
+  it('has no workflow that can create/publish/upload a release or request write contents permission', () => {
+    for (const file of workflowFiles) {
+      const wf = read(workflowsDir, file)
+      expect(wf).not.toMatch(/contents:\s*write/)
+      expect(wf).not.toContain('gh release create')
+      expect(wf).not.toContain('uploads.github.com')
+      expect(wf).not.toMatch(/actions\/upload-release/)
+      expect(wf).not.toContain('softprops/action-gh-release')
+    }
+  })
+})
+
+describe('runtime application product identity', () => {
+  const mainIndex = read(electronDir, 'src', 'main', 'index.ts')
+
+  it('falls back to the Mkrate app name when CRAFT_APP_NAME is unset (env var name preserved)', () => {
+    expect(mainIndex).toContain("app.setName(process.env.CRAFT_APP_NAME || 'Mkrate')")
+    expect(mainIndex).not.toContain("|| 'Craft Agents'")
+  })
+})
+
+describe('WebUI PWA manifest product identity', () => {
+  const manifest = JSON.parse(
+    read(repoRoot, 'apps', 'webui', 'src', 'public', 'manifest.json'),
+  ) as { name: string; short_name: string }
+
+  it('names the installable WebUI app Mkrate', () => {
+    expect(manifest.name).toBe('Mkrate')
+    expect(manifest.short_name).toBe('Mkrate')
+  })
+})
+
+describe('Mkrate assistant persona and co-author trailer', () => {
+  const systemPrompt = read(
+    repoRoot,
+    'packages',
+    'shared',
+    'src',
+    'prompts',
+    'system.ts',
+  )
+
+  it('self-identifies as Mkrate, not Craft Agent', () => {
+    expect(systemPrompt).toContain('You are Mkrate - an AI assistant')
+    expect(systemPrompt).toContain('You must refer to yourself as Mkrate when asked.')
+    expect(systemPrompt).not.toContain('You are Craft Agent -')
+    expect(systemPrompt).not.toContain('refer to yourself as Craft Agent')
+  })
+
+  it('uses a Mkrate co-author trailer with a GitHub noreply address, kept opt-in only', () => {
+    expect(systemPrompt).toContain('Co-Authored-By: Mkrate <mkrtc@users.noreply.github.com>')
+    expect(systemPrompt).not.toContain('Co-Authored-By: Craft Agent')
+    // The trailer stays behind the explicit opt-in flag — never default-on.
+    expect(systemPrompt).toContain('includeCoAuthoredBy ? `## Git Conventions')
+  })
+
+  it('preserves the factual Craft Agents Backend provider wording and SDK-detection marker', () => {
+    expect(systemPrompt).toContain('craft_agent_environment')
+  })
+})
+
+describe('README makes no live binary/install/update claim', () => {
+  const readme = read(repoRoot, 'README.md')
+
+  it('states plainly that no Mkrate binaries/installers/releases are published yet', () => {
+    expect(readme).toContain('There are no published Mkrate binaries, installers, or releases yet.')
+  })
+
+  it('offers no copy-pastable one-line installer presented as currently working', () => {
+    expect(readme).not.toMatch(/curl -fsSL[^\n]*install-app\.sh[^\n]*\|\s*bash/)
+    expect(readme).not.toMatch(/irm[^\n]*install-app\.ps1[^\n]*\|\s*iex/)
+  })
+
+  it('keeps macOS native packaging explicitly blocked', () => {
+    expect(readme).toMatch(/macOS[^\n]*packaging[^\n]*blocked/i)
   })
 })
 

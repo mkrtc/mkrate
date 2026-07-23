@@ -191,7 +191,7 @@ env -i \
   CRAFT_HEADLESS=1 \
   CRAFT_RPC_HOST=127.0.0.1 \
   CRAFT_RPC_PORT=0 \
-  CRAFT_APP_NAME="Craft Agents CRFT Diagnostic $RUN_ID" \
+  CRAFT_APP_NAME="Mkrate CRFT Diagnostic $RUN_ID" \
   CRAFT_DEEPLINK_SCHEME="craftagentsdiag${RUN_ID//-/}" \
   "${RUNNER[@]}" \
     "$ELECTRON_BIN" \
