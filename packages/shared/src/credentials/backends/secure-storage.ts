@@ -234,6 +234,31 @@ export class SecureStorageBackend implements CredentialBackend {
     });
   }
 
+  /** Raw account enumeration (verbatim keys, no CredentialId parsing). */
+  async listRawAccounts(): Promise<string[]> {
+    const store = await this.loadStore();
+    if (!store) return [];
+    return Object.keys(store.credentials);
+  }
+
+  /** Read a credential by its raw account string. */
+  async getByAccount(account: string): Promise<StoredCredential | null> {
+    const store = await this.loadStore();
+    if (!store) return null;
+    return store.credentials[account] ?? null;
+  }
+
+  /** Delete a credential by its raw account string. */
+  async deleteByAccount(account: string): Promise<boolean> {
+    const store = this.loadStoreSync();
+    if (!store) return false;
+    if (!(account in store.credentials)) return false;
+    delete store.credentials[account];
+    store.metadata.updatedAt = Date.now();
+    this.saveStoreSync(store);
+    return true;
+  }
+
   // ============================================================
   // Private Methods
   // ============================================================

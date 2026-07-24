@@ -1,15 +1,27 @@
 /**
  * Memory connection service layer.
  *
- * Coordinates MemoryConnectionRepository mutations with CredentialManager memory
- * API-key lifecycle so config and credential state stay consistent.
+ * Coordinates MemoryConnectionRepository (config) with CredentialManager
+ * (secrets) through the durable A5 saga so a crash mid-operation is recoverable
+ * and config/credential state always converges. This layer preserves the stable
+ * external contract (method signatures, DTO shapes, and error codes) while the
+ * durable saga runs underneath.
  */
 
-import { MemoryConnectionRepository } from './repository.ts';
+import { MemoryConnectionRepository, type MemorySpaceMutationResult } from './repository.ts';
 import { toMemoryConnectionSummaryDto, type MemoryConnectionSummaryDto } from './dto.ts';
-import type { CreateMemoryConnectionInput, UpdateMemoryConnectionInput, MemoryConnectionConfig } from './types.ts';
+import type { CreateMemoryConnectionInput, CreateMemorySpaceInput, UpdateMemoryConnectionInput, UpdateMemorySpaceInput, MemoryConnectionConfig, MemoryCredentialMode } from './types.ts';
 import { MemoryError } from './types.ts';
 import type { CredentialManager } from '../../credentials/manager.ts';
+import {
+  MemorySagaCoordinator,
+  MigrationCollisionError,
+  SagaBlockedError,
+  SagaRollbackError,
+  SagaStepError,
+  type MemorySagaHooks,
+  type MigrationResult,
+} from './saga.ts';
 
 export interface CreateMemoryConnectionServiceInput extends CreateMemoryConnectionInput {
   /** Optional expected root revision for optimistic concurrency. Defaults to current root for direct service callers. */
@@ -35,6 +47,16 @@ export interface UpdateMemoryConnectionServiceInput extends UpdateMemoryConnecti
 export interface MemoryConnectionServiceDeps {
   repository: MemoryConnectionRepository;
   credentialManager: CredentialManager;
+  /** Deterministic failure hooks (tests + crash-recovery coverage). */
+  sagaHooks?: MemorySagaHooks;
+  /** Clock override (tests). */
+  now?: () => number;
+  /** Canonical-UUID generator override (tests). */
+  newId?: () => string;
+  /** Actor recorded on journal entries. */
+  actor?: string;
+  /** Saga lease acquisition timeout (tests). */
+  leaseTimeoutMs?: number;
 }
 
 export type MemoryConnectionServiceCode =
@@ -104,134 +126,195 @@ function mapCredentialError(error: unknown): never {
   });
 }
 
+/** Translate a saga/coordinator failure into the stable service error taxonomy. */
+function mapSagaError(error: unknown): never {
+  if (error instanceof MemoryConnectionServiceError) throw error;
+  if (error instanceof SagaRollbackError) {
+    throw new MemoryConnectionServiceError('rollback_error', error.message, { ...error.details }, error.cause);
+  }
+  if (error instanceof SagaBlockedError) {
+    // Recovery is blocked (ambiguous/quarantined state); the subsystem is fail-closed.
+    throw new MemoryConnectionServiceError('config_error', error.message, { sagaId: error.sagaId, blocked: true });
+  }
+  if (error instanceof MigrationCollisionError) {
+    throw new MemoryConnectionServiceError('config_error', error.message, { connectionIds: error.connectionIds });
+  }
+  if (error instanceof SagaStepError) {
+    if (error.phase === 'credential') mapCredentialError(error.cause);
+    mapRepositoryError(error.cause);
+  }
+  mapRepositoryError(error);
+}
+
 function pickHasApiKeyFromMode(credentialMode: MemoryConnectionConfig['credentialMode']): boolean {
   return credentialMode === 'stored-api-key';
+}
+
+function toSummary(connection: MemoryConnectionConfig): MemoryConnectionSummaryDto {
+  return toMemoryConnectionSummaryDto(connection, {
+    isEnvironment: false,
+    hasApiKey: pickHasApiKeyFromMode(connection.credentialMode),
+  });
 }
 
 export class MemoryConnectionService {
   public readonly repository: MemoryConnectionRepository;
   public readonly credentialManager: CredentialManager;
+  public readonly coordinator: MemorySagaCoordinator;
 
   constructor(deps: MemoryConnectionServiceDeps) {
     this.repository = deps.repository;
     this.credentialManager = deps.credentialManager;
+    this.coordinator = new MemorySagaCoordinator({
+      repository: deps.repository,
+      credentialManager: deps.credentialManager,
+      dir: deps.repository.getDir(),
+      hooks: deps.sagaHooks,
+      now: deps.now,
+      newId: deps.newId,
+      actor: deps.actor,
+      leaseTimeoutMs: deps.leaseTimeoutMs,
+    });
+  }
+
+  /**
+   * Run durable startup recovery once. All memory handlers must gate on this so a
+   * crashed saga is resolved (or the subsystem fails closed) before any new
+   * outer-memory mutation. Idempotent and memoized.
+   */
+  async ensureRecovered(): Promise<void> {
+    try {
+      await this.coordinator.ensureRecovered();
+    } catch (error) {
+      mapSagaError(error);
+    }
   }
 
   async createConnection(input: CreateMemoryConnectionServiceInput): Promise<MemoryConnectionSummaryDto> {
     const { apiKey, expectedRootRevision: requestedRootRevision, ...connectionInput } = input;
     const normalizedApiKey = apiKey !== undefined ? normalizeApiKey(apiKey) : undefined;
     const expectedRootRevision = requestedRootRevision ?? this.repository.getRootRevision();
-    const credentialMode = normalizedApiKey !== undefined ? 'stored-api-key' : 'none';
-
-    const connection = await this.repository
-      .createConnection(connectionInput, expectedRootRevision, { credentialMode })
-      .catch((error) => mapRepositoryError(error));
-
-    if (normalizedApiKey === undefined) {
-      return toMemoryConnectionSummaryDto(connection, {
-        isEnvironment: false,
-        hasApiKey: pickHasApiKeyFromMode(connection.credentialMode),
-      });
-    }
 
     try {
-      await this.credentialManager.setMemoryApiKey(connection.connectionId, normalizedApiKey);
+      const connection = await this.coordinator.createConnection(connectionInput, expectedRootRevision, normalizedApiKey);
+      return toSummary(connection);
     } catch (error) {
-      try {
-        const rootAfterCreate = this.repository.getRootRevision();
-        await this.repository.deleteConnection(connection.connectionId, rootAfterCreate);
-      } catch (rollbackError) {
-        throw new MemoryConnectionServiceError('rollback_error', 'Failed to persist API key and rollback connection config', {
-          connectionId: connection.connectionId,
-          rootRevision: this.repository.getRootRevision(),
-          cause: serializeCause(rollbackError),
-        });
-      }
-      mapCredentialError(error);
+      mapSagaError(error);
     }
-
-    return toMemoryConnectionSummaryDto(connection, {
-      isEnvironment: false,
-      hasApiKey: true,
-    });
   }
 
   async patchConnection(input: UpdateMemoryConnectionServiceInput): Promise<MemoryConnectionSummaryDto> {
     const { connectionId, expectedRevision, apiKey, ...patch } = input;
 
-    const normalizedApiKey = apiKey === undefined
+    const apiKeyOp = apiKey === undefined
       ? undefined
       : apiKey === null
-        ? null
-        : normalizeApiKey(apiKey);
-
-    const connection = await this.repository
-      .updateConnection(connectionId, patch as UpdateMemoryConnectionInput, expectedRevision)
-      .catch((error) => mapRepositoryError(error));
-
-    if (normalizedApiKey === undefined) {
-      return toMemoryConnectionSummaryDto(connection, {
-        isEnvironment: false,
-        hasApiKey: pickHasApiKeyFromMode(connection.credentialMode),
-      });
-    }
-
-    if (normalizedApiKey === null) {
-      try {
-        await this.credentialManager.deleteMemoryApiKey(connectionId);
-        return toMemoryConnectionSummaryDto(connection, { isEnvironment: false, hasApiKey: false });
-      } catch (error) {
-        mapCredentialError(error);
-      }
-    }
+        ? { kind: 'clear' as const }
+        : { kind: 'set' as const, apiKey: normalizeApiKey(apiKey) };
 
     try {
-      await this.credentialManager.setMemoryApiKey(connectionId, normalizedApiKey);
-      return toMemoryConnectionSummaryDto(connection, { isEnvironment: false, hasApiKey: true });
+      const connection = await this.coordinator.updateConnectionConfig(
+        connectionId,
+        patch as UpdateMemoryConnectionInput,
+        expectedRevision,
+        apiKeyOp,
+      );
+      return toSummary(connection);
     } catch (error) {
-      mapCredentialError(error);
+      mapSagaError(error);
     }
   }
 
   async deleteConnection(connectionId: string, expectedRootRevision: number): Promise<void> {
-    const existing = this.repository.getConnection(connectionId);
-    if (!existing) {
-      throw new MemoryConnectionServiceError('not_found', `connection not found: ${connectionId}`);
-    }
-
-    let existingKey: string | null = null;
     try {
-      existingKey = await this.credentialManager.getMemoryApiKey(connectionId);
+      await this.coordinator.deleteConnection(connectionId, expectedRootRevision);
     } catch (error) {
-      mapCredentialError(error);
+      mapSagaError(error);
     }
+  }
 
-    if (existingKey !== null) {
-      try {
-        const deleted = await this.credentialManager.deleteMemoryApiKey(connectionId);
-        if (!deleted) {
-          mapCredentialError(new Error('Failed to delete memory API key'));
-        }
-      } catch (error) {
-        mapCredentialError(error);
-      }
-    }
-
+  /** Establish or overwrite the API key for a connection (converges credentialMode). */
+  async setApiKey(connectionId: string, apiKey: string, expectedRevision: number): Promise<MemoryConnectionSummaryDto> {
+    const normalized = normalizeApiKey(apiKey);
     try {
-      await this.repository.deleteConnection(connectionId, expectedRootRevision);
-      return;
+      return toSummary(await this.coordinator.setApiKey(connectionId, normalized, expectedRevision));
     } catch (error) {
-      if (existingKey !== null) {
-        try {
-          await this.credentialManager.setMemoryApiKey(connectionId, existingKey);
-        } catch (restoreError) {
-          throw new MemoryConnectionServiceError('rollback_error', 'Failed to delete connection and restore API key', {
-            connectionId,
-            cause: serializeCause(restoreError),
-          });
-        }
-      }
-      mapRepositoryError(error);
+      mapSagaError(error);
+    }
+  }
+
+  /** Replace an existing API key. Fails closed if none is stored. */
+  async replaceApiKey(connectionId: string, apiKey: string, expectedRevision: number): Promise<MemoryConnectionSummaryDto> {
+    const normalized = normalizeApiKey(apiKey);
+    try {
+      return toSummary(await this.coordinator.replaceApiKey(connectionId, normalized, expectedRevision));
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  /** Remove a connection's API key (converges credentialMode to `none`). */
+  async clearApiKey(connectionId: string, expectedRevision: number): Promise<MemoryConnectionSummaryDto> {
+    try {
+      return toSummary(await this.coordinator.clearApiKey(connectionId, expectedRevision));
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  /** Explicitly set credentialMode, enforcing consistency with actual key presence. */
+  async setCredentialMode(connectionId: string, mode: MemoryCredentialMode, expectedRevision: number): Promise<MemoryConnectionSummaryDto> {
+    try {
+      return toSummary(await this.coordinator.setCredentialMode(connectionId, mode, expectedRevision));
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  /** Migrate legacy (non-canonical) memory credential accounts. Fail-closed on collision. */
+  async migrateLegacyUppercaseCredentials(): Promise<MigrationResult> {
+    try {
+      return await this.coordinator.migrateLegacyUppercaseCredentials();
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  // Space mutations route through the coordinator (outer lease, after recovery)
+  // so they never bypass the sole serialization point, even though they touch
+  // only the single config store.
+
+  async addSpace(connectionId: string, input: CreateMemorySpaceInput, expectedRevision: number): Promise<MemorySpaceMutationResult> {
+    try {
+      return await this.coordinator.addSpace(connectionId, input, expectedRevision);
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  async updateSpace(connectionId: string, spaceId: string, patch: UpdateMemorySpaceInput, expectedRevision: number): Promise<MemorySpaceMutationResult> {
+    try {
+      return await this.coordinator.updateSpace(connectionId, spaceId, patch, expectedRevision);
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  async deleteSpace(connectionId: string, spaceId: string, expectedRevision: number): Promise<MemoryConnectionConfig> {
+    try {
+      return await this.coordinator.deleteSpace(connectionId, spaceId, expectedRevision);
+    } catch (error) {
+      mapSagaError(error);
+    }
+  }
+
+  /** Run durable recovery, then heal legacy credential accounts (fail-closed). */
+  async ensureReady(): Promise<void> {
+    await this.ensureRecovered();
+    try {
+      await this.coordinator.migrateLegacyUppercaseCredentials();
+    } catch (error) {
+      mapSagaError(error);
     }
   }
 }

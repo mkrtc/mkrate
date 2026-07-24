@@ -7,7 +7,7 @@
  * therefore backend-only — importing this file pulls `crypto` into the graph.
  */
 
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 
 export {
   CANONICAL_UUID_PATTERN,
@@ -24,6 +24,11 @@ import { isUuid } from './uuid-format.ts';
 export function randomUuid(): string {
   // Node's randomUUID() already returns canonical lowercase.
   return randomUUID();
+}
+
+/** Generate `bytes` random bytes as a lowercase hex string (`2 * bytes` chars). */
+export function randomHex(bytes: number): string {
+  return randomBytes(bytes).toString('hex');
 }
 
 function uuidToBytes(uuid: string): Buffer {

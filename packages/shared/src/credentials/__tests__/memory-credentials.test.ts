@@ -103,6 +103,55 @@ function fakeManager(): { manager: CredentialManager; store: Map<string, StoredC
   return { manager, store };
 }
 
+describe('A5 saga staging/quarantine credential identities', () => {
+  const SAGA = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
+  test('memory_saga_stage encodes and round-trips per slot', () => {
+    const before = credentialIdToAccount({ type: 'memory_saga_stage', sagaId: SAGA, sagaSlot: 'before' });
+    expect(before).toBe(`memory_saga_stage::${SAGA}::before`);
+    expect(accountToCredentialId(before)).toEqual({ type: 'memory_saga_stage', sagaId: SAGA, sagaSlot: 'before' });
+    const after = credentialIdToAccount({ type: 'memory_saga_stage', sagaId: SAGA, sagaSlot: 'after' });
+    expect(accountToCredentialId(after)).toEqual({ type: 'memory_saga_stage', sagaId: SAGA, sagaSlot: 'after' });
+  });
+
+  test('memory_saga_quarantine encodes and round-trips with a hex token', () => {
+    const account = credentialIdToAccount({ type: 'memory_saga_quarantine', sagaId: SAGA, sagaSlot: 'before', quarantineToken: 'deadbeef' });
+    expect(account).toBe(`memory_saga_quarantine::${SAGA}::before::deadbeef`);
+    expect(accountToCredentialId(account)).toEqual({ type: 'memory_saga_quarantine', sagaId: SAGA, sagaSlot: 'before', quarantineToken: 'deadbeef' });
+  });
+
+  test('saga identities reject a non-canonical sagaId or bad slot/token', () => {
+    expect(() => credentialIdToAccount({ type: 'memory_saga_stage', sagaId: SAGA.toUpperCase(), sagaSlot: 'before' })).not.toThrow();
+    // Uppercase sagaId canonicalizes on encode, but a stored uppercase account must not parse.
+    expect(accountToCredentialId(`memory_saga_stage::${SAGA.toUpperCase()}::before`)).toBeNull();
+    expect(accountToCredentialId(`memory_saga_stage::${SAGA}::sideways`)).toBeNull();
+    expect(accountToCredentialId(`memory_saga_quarantine::${SAGA}::before::NOTHEX`)).toBeNull();
+    expect(() => credentialIdToAccount({ type: 'memory_saga_stage', sagaId: SAGA } as never)).toThrow();
+  });
+
+  test('staging round-trips through the manager and stays out of the generic memory listing', async () => {
+    const { manager, store } = fakeManager();
+    await manager.setMemoryApiKey(UUID, 'sk-real');
+    await manager.stageSagaSecret(SAGA, 'before', 'sk-staged-before');
+    await manager.stageSagaSecret(SAGA, 'after', 'sk-staged-after');
+
+    expect(await manager.readStagedSagaSecret(SAGA, 'before')).toBe('sk-staged-before');
+    expect(await manager.readStagedSagaSecret(SAGA, 'after')).toBe('sk-staged-after');
+    // The staging identities do not appear as memory connections with keys.
+    expect(await manager.listMemoryApiKeyConnectionIds()).toEqual([UUID]);
+    expect([...store.keys()].filter(k => k.startsWith('memory_saga_stage'))).toHaveLength(2);
+
+    expect(await manager.deleteStagedSagaSecret(SAGA, 'before')).toBe(true);
+    expect(await manager.readStagedSagaSecret(SAGA, 'before')).toBeNull();
+  });
+
+  test('legacy enumeration + saga-stage enumeration report no work when the backend cannot enumerate raw accounts', async () => {
+    const { manager } = fakeManager(); // fake backend has no listRawAccounts
+    expect(await manager.listLegacyMemoryApiKeyAccounts()).toEqual([]);
+    expect(await manager.listSagaStageSagaIds()).toEqual([]);
+  });
+});
+
 describe('CredentialManager memory helpers (round-trip)', () => {
   test('set → get → has → list → delete round-trips per connection id', async () => {
     const { manager, store } = fakeManager();

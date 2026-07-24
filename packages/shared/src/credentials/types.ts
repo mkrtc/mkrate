@@ -37,7 +37,14 @@ export type CredentialType =
   // Messaging gateway credentials (keyed by workspaceId + platform)
   | 'messaging_bearer'   // Platform tokens (e.g., Telegram bot token)
   // Memory connection credentials (keyed by connection UUID)
-  | 'memory_api_key';    // API key for a Qdrant Memory connection
+  | 'memory_api_key'     // API key for a Qdrant Memory connection
+  // Internal A5 saga staging/quarantine identities (keyed by saga UUID + slot).
+  // These hold before/after secret material for an in-flight saga so a crash is
+  // recoverable. They are encrypted at rest like any credential, and are
+  // deliberately EXCLUDED from every generic memory listing (they are a distinct
+  // type, so a `type: 'memory_api_key'` filter never returns them).
+  | 'memory_saga_stage'       // before/after secret staged mid-saga
+  | 'memory_saga_quarantine'; // preserved secret material from an unresolved saga
 
 /** Valid credential types for validation */
 const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
@@ -54,6 +61,8 @@ const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'source_basic',
   'messaging_bearer',
   'memory_api_key',
+  'memory_saga_stage',
+  'memory_saga_quarantine',
 ] as const;
 
 /** Check if a string is a valid CredentialType */
@@ -80,6 +89,14 @@ export interface CredentialId {
   // Memory connection-scoped format
   /** Memory connection UUID for memory_api_key credentials */
   memoryConnectionId?: string;
+
+  // Internal A5 saga staging/quarantine format
+  /** Saga UUID for memory_saga_stage / memory_saga_quarantine credentials */
+  sagaId?: string;
+  /** Which secret slot this staging/quarantine entry holds. */
+  sagaSlot?: 'before' | 'after';
+  /** Disambiguating hex token for a quarantine entry (evidence, non-clobbering). */
+  quarantineToken?: string;
 }
 
 /**
@@ -171,6 +188,24 @@ export const MEMORY_CREDENTIAL_TYPES = [
   'memory_api_key',
 ] as const;
 
+/** Internal A5 saga staging/quarantine credential types (never listed generically). */
+export const MEMORY_SAGA_CREDENTIAL_TYPES = [
+  'memory_saga_stage',
+  'memory_saga_quarantine',
+] as const;
+
+const QUARANTINE_TOKEN_PATTERN = /^[0-9a-f]{1,64}$/;
+
+/** Check if type is an internal saga staging credential. */
+function isMemorySagaStage(type: CredentialType): boolean {
+  return type === 'memory_saga_stage';
+}
+
+/** Check if type is an internal saga quarantine credential. */
+function isMemorySagaQuarantine(type: CredentialType): boolean {
+  return type === 'memory_saga_quarantine';
+}
+
 /** Check if type is a source credential */
 function isSourceCredential(type: CredentialType): boolean {
   return (SOURCE_CREDENTIAL_TYPES as readonly string[]).includes(type);
@@ -208,6 +243,33 @@ export function credentialIdToAccount(id: CredentialId): string {
       throw new Error('memory_api_key credential requires a valid UUID memoryConnectionId');
     }
     parts.push(canonical);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
+  // Internal saga staging format:
+  // memory_saga_stage::{sagaId}::{slot}
+  if (isMemorySagaStage(id.type)) {
+    const canonical = id.sagaId ? toCanonicalUuid(id.sagaId) : null;
+    if (!canonical) throw new Error('memory_saga_stage credential requires a valid UUID sagaId');
+    if (id.sagaSlot !== 'before' && id.sagaSlot !== 'after') {
+      throw new Error('memory_saga_stage credential requires slot "before" or "after"');
+    }
+    parts.push(canonical, id.sagaSlot);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
+  // Internal saga quarantine format:
+  // memory_saga_quarantine::{sagaId}::{slot}::{token}
+  if (isMemorySagaQuarantine(id.type)) {
+    const canonical = id.sagaId ? toCanonicalUuid(id.sagaId) : null;
+    if (!canonical) throw new Error('memory_saga_quarantine credential requires a valid UUID sagaId');
+    if (id.sagaSlot !== 'before' && id.sagaSlot !== 'after') {
+      throw new Error('memory_saga_quarantine credential requires slot "before" or "after"');
+    }
+    if (!id.quarantineToken || !QUARANTINE_TOKEN_PATTERN.test(id.quarantineToken)) {
+      throw new Error('memory_saga_quarantine credential requires a hex quarantineToken');
+    }
+    parts.push(canonical, id.sagaSlot, id.quarantineToken);
     return parts.join(CREDENTIAL_DELIMITER);
   }
 
@@ -312,6 +374,20 @@ export function accountToCredentialId(account: string): CredentialId | null {
   // distinct account.
   if (isMemoryCredential(type) && parts.length === 2 && isCanonicalUuid(parts[1])) {
     return { type, memoryConnectionId: parts[1] };
+  }
+
+  // Internal saga staging format:
+  // memory_saga_stage::{sagaId}::{slot} — sagaId must be canonical UUID.
+  if (isMemorySagaStage(type) && parts.length === 3 && isCanonicalUuid(parts[1])
+    && (parts[2] === 'before' || parts[2] === 'after')) {
+    return { type, sagaId: parts[1], sagaSlot: parts[2] };
+  }
+
+  // Internal saga quarantine format:
+  // memory_saga_quarantine::{sagaId}::{slot}::{token}
+  if (isMemorySagaQuarantine(type) && parts.length === 4 && isCanonicalUuid(parts[1])
+    && (parts[2] === 'before' || parts[2] === 'after') && QUARANTINE_TOKEN_PATTERN.test(parts[3] ?? '')) {
+    return { type, sagaId: parts[1], sagaSlot: parts[2], quarantineToken: parts[3] };
   }
 
   // Workspace-scoped format (no source):

@@ -46,6 +46,7 @@ import { basename, dirname, join, resolve } from 'path';
 import { getConfigDir } from '../../config/paths.ts';
 import { safeJsonParse } from '../../utils/files.ts';
 import { randomUuid } from '../../utils/uuid.ts';
+import { isCanonicalUuid } from '../../utils/uuid-format.ts';
 import { deriveGlobalSpace, deriveGlobalSpaceId } from './global-space.ts';
 import { MEMORY_LIMITS } from './limits.ts';
 import {
@@ -97,6 +98,12 @@ export interface MemoryConnectionRepositoryOptions {
 export interface CreateMemoryConnectionOptions {
   /** Credential strategy for the new connection. */
   credentialMode?: MemoryCredentialMode;
+  /**
+   * Pre-generated canonical connection id. Used by the A5 saga so the id is
+   * journaled *before* the connection is created, making create crash-recoverable.
+   * Must be a canonical (lowercase) UUID and not already in use.
+   */
+  connectionId?: string;
 }
 
 /** Result of a space create/update mutation. */
@@ -143,6 +150,11 @@ export class MemoryConnectionRepository {
 
   getFilePath(): string {
     return this.filePath;
+  }
+
+  /** The `${CONFIG_DIR}/memory` directory holding all memory artifacts. */
+  getDir(): string {
+    return this.dir;
   }
 
   getBackupPath(): string {
@@ -338,9 +350,21 @@ export class MemoryConnectionRepository {
       }
       assertConnectionNameAvailable(config, value.name);
 
+      let connectionId = options?.connectionId;
+      if (connectionId !== undefined) {
+        if (!isCanonicalUuid(connectionId)) {
+          throw new MemoryError('invalid_input', `pre-generated connection id is not a canonical UUID: ${connectionId}`);
+        }
+        if (config.connections.some(c => c.connectionId === connectionId)) {
+          throw new MemoryError('duplicate_name', `connection already exists: ${connectionId}`);
+        }
+      } else {
+        connectionId = randomUuid();
+      }
+
       const timestamp = this.now();
       const connection: MemoryConnectionConfig = {
-        connectionId: randomUuid(),
+        connectionId,
         revision: 1,
         provider: 'qdrant',
         url: value.url,
@@ -412,6 +436,92 @@ export class MemoryConnectionRepository {
       config.connections = config.connections.filter(c => c.connectionId !== connectionId);
       config.revision += 1;
       this.persist(config);
+    });
+  }
+
+  /**
+   * Set a stored connection's `credentialMode` (config-side of credential-mode
+   * convergence). Guards on the per-connection revision. `legacy-environment` is
+   * rejected — it is valid only on the synthetic environment connection, never a
+   * stored one. A no-op change neither bumps nor writes.
+   *
+   * This is a config-only mutation owned by the A5 saga; it never touches secrets.
+   */
+  setConnectionCredentialMode(
+    connectionId: string,
+    mode: MemoryCredentialMode,
+    expectedRevision: number,
+  ): Promise<MemoryConnectionConfig> {
+    return this.runExclusive(() => {
+      if (mode !== 'none' && mode !== 'stored-api-key') {
+        throw new MemoryError('invalid_input', `invalid credential mode for a stored connection: ${mode}`);
+      }
+      const config = this.load();
+      const connection = this.requireConnection(config, connectionId);
+      assertRevision(connection, expectedRevision);
+      if (connection.credentialMode === mode) {
+        return connection;
+      }
+      connection.credentialMode = mode;
+      connection.revision += 1;
+      connection.updatedAt = this.now();
+      config.revision += 1;
+      this.persist(config);
+      return connection;
+    });
+  }
+
+  /**
+   * Apply mutable config fields (`name`/`enabled`/`proactiveRemoteSearch`) and/or
+   * `credentialMode` to a stored connection in ONE atomic, revision-guarded write.
+   *
+   * The A5 saga uses this as its single durable "config barrier" so that a
+   * field+mode change is one crash-atomic step (never two half-committed writes).
+   * A no-op (nothing actually changes) neither bumps the revision nor writes.
+   * `legacy-environment` mode is rejected on a stored connection.
+   */
+  applyConnectionConfig(
+    connectionId: string,
+    change: { patch?: UpdateMemoryConnectionInput; credentialMode?: MemoryCredentialMode },
+    expectedRevision: number,
+  ): Promise<MemoryConnectionConfig> {
+    return this.runExclusive(() => {
+      const patch = change.patch ?? {};
+      const validation = validateUpdateMemoryConnectionInput(patch);
+      if (!validation.valid || !validation.value) {
+        const immutable = validation.errors.some(e => e.includes('immutable'));
+        throw new MemoryError(immutable ? 'immutable_field' : 'invalid_input', validation.errors.join('; '), validation.errors);
+      }
+      const value = validation.value;
+      if (change.credentialMode !== undefined && change.credentialMode !== 'none' && change.credentialMode !== 'stored-api-key') {
+        throw new MemoryError('invalid_input', `invalid credential mode for a stored connection: ${change.credentialMode}`);
+      }
+      const config = this.load();
+      const connection = this.requireConnection(config, connectionId);
+      assertRevision(connection, expectedRevision);
+
+      const nameChanges = value.name !== undefined && value.name !== connection.name;
+      const enabledChanges = value.enabled !== undefined && value.enabled !== connection.enabled;
+      const proactiveChanges = value.proactiveRemoteSearch !== undefined && value.proactiveRemoteSearch !== connection.proactiveRemoteSearch;
+      const modeChanges = change.credentialMode !== undefined && change.credentialMode !== connection.credentialMode;
+
+      if (!nameChanges && !enabledChanges && !proactiveChanges && !modeChanges) {
+        return connection;
+      }
+      if (nameChanges) {
+        if (normalizeNameKey(value.name!) !== normalizeNameKey(connection.name)) {
+          assertConnectionNameAvailable(config, value.name!, connectionId);
+        }
+        connection.name = value.name!;
+      }
+      if (enabledChanges) connection.enabled = value.enabled!;
+      if (proactiveChanges) connection.proactiveRemoteSearch = value.proactiveRemoteSearch!;
+      if (modeChanges) connection.credentialMode = change.credentialMode!;
+      connection.revision += 1;
+      connection.updatedAt = this.now();
+      config.revision += 1;
+      this.persist(config);
+      return connection;
     });
   }
 

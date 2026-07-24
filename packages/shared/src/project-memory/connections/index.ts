@@ -15,4 +15,9 @@ export * from './repository.ts';
 export * from './environment.ts';
 export * from './mappers.ts';
 export * from './service.ts';
+// Backend-only: A5 durable saga (journal, lease, coordinator, durable-file).
+export * from './saga.ts';
+export * from './saga-journal.ts';
+export * from './saga-lease.ts';
+export * from './durable-file.ts';
 export { MEMORY_GLOBAL_SPACE_NAMESPACE } from './global-space.ts';

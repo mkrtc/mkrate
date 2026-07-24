@@ -16,12 +16,14 @@ const projectSlug = 'memory-project'
 const defaultEmbedding = { model: 'craft-local-hash-v1', dimension: 384 }
 
 function resetMemoryConnectionConfig() {
+  resetMemoryRuntime?.()
   rmSync(join(configDir, 'memory'), { recursive: true, force: true })
 }
 
 let handlers: Map<string, HandlerFn>
 let setProjectMemoryStoreForTests: (store: ProjectMemoryStore | null) => void
 let registerProjectsHandlers: (server: RpcServer, deps: HandlerDeps) => void
+let resetMemoryRuntime: (() => void) | undefined
 
 function makePayload(input: ProjectMemoryAddInput): ProjectMemoryPayload {
   return {
@@ -135,7 +137,9 @@ beforeAll(async () => {
   }, null, 2))
 
   ;({ setProjectMemoryStoreForTests } = await import('@craft-agent/shared/project-memory'))
-  ;({ registerProjectsHandlers } = await import('./projects'))
+  const projectsModule = await import('./projects')
+  registerProjectsHandlers = projectsModule.registerProjectsHandlers
+  resetMemoryRuntime = projectsModule.__resetMemoryConnectionRuntimeForTests
 })
 
 afterEach(() => {
@@ -387,5 +391,66 @@ describe('project memory RPC handlers', () => {
       connectionId: created.connectionId,
       expectedRootRevision: updated.revision,
     })).rejects.toThrow('revision')
+  })
+
+  it('routes space mutations through the coordinator: a space create racing a credential update serializes', async () => {
+    registerProjectsHandlers(server(), deps())
+    const create = handler(RPC_CHANNELS.projects.MEMORY_CONNECTION_CREATE)
+    const update = handler(RPC_CHANNELS.projects.MEMORY_CONNECTION_UPDATE)
+    const createSpace = handler(RPC_CHANNELS.projects.MEMORY_SPACE_CREATE)
+
+    const created = await create(ctx(), buildMemoryConnectionCreateInput(0, 'Primary'))
+
+    // A credential-bearing connection update and a space create both expect the
+    // same revision and contend on the one saga lease → exactly one commits.
+    const outcomes = await Promise.allSettled([
+      update(ctx(), { connectionId: created.connectionId, expectedRevision: created.revision, apiKey: 'sk-race' }),
+      createSpace(ctx(), { connectionId: created.connectionId, expectedRevision: created.revision, kind: 'custom', name: 'Race Space', writable: true }),
+    ])
+    expect(outcomes.filter(o => o.status === 'fulfilled')).toHaveLength(1)
+    expect(outcomes.filter(o => o.status === 'rejected')).toHaveLength(1)
+  })
+
+  it('fails closed at the server gate when an orphan saga staging secret has no journal entry', async () => {
+    // A staged secret with no owning journal entry (journal lost/truncated) must
+    // block every memory handler until an operator resolves it.
+    const { CredentialManager } = await import('@craft-agent/shared/credentials')
+    const sagaId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
+    const creds = new CredentialManager({ credentialsConfigDir: configDir })
+    await creds.stageSagaSecret(sagaId, 'before', 'sk-orphan-server')
+    try {
+      registerProjectsHandlers(server(), deps())
+      const snapshot = handler(RPC_CHANNELS.projects.MEMORY_CONNECTIONS_SNAPSHOT)
+      const createConn = handler(RPC_CHANNELS.projects.MEMORY_CONNECTION_CREATE)
+
+      await expect(snapshot(ctx())).rejects.toThrow()
+      await expect(createConn(ctx(), buildMemoryConnectionCreateInput(0, 'Blocked'))).rejects.toThrow()
+
+      // Explicit resolution: remove the orphan staging → the gate recovers and serves.
+      await creds.deleteStagedSagaSecret(sagaId, 'before')
+      const ok = await snapshot(ctx())
+      expect(ok.revision).toBe(0)
+    } finally {
+      await creds.deleteStagedSagaSecret(sagaId, 'before').catch(() => undefined)
+    }
+  })
+
+  it('fails closed when startup saga recovery cannot complete (corrupt journal)', async () => {
+    // A present-but-corrupt saga journal must block every memory handler rather
+    // than let it operate on unrecovered state.
+    mkdirSync(join(configDir, 'memory'), { recursive: true })
+    writeFileSync(join(configDir, 'memory', 'saga-journal.json'), '{ this is not valid json')
+
+    registerProjectsHandlers(server(), deps())
+    const snapshot = handler(RPC_CHANNELS.projects.MEMORY_CONNECTIONS_SNAPSHOT)
+    const create = handler(RPC_CHANNELS.projects.MEMORY_CONNECTION_CREATE)
+
+    await expect(snapshot(ctx())).rejects.toThrow()
+    await expect(create(ctx(), buildMemoryConnectionCreateInput(0, 'Blocked'))).rejects.toThrow()
+
+    // After the operator removes the corrupt journal, the gate recovers and serves.
+    rmSync(join(configDir, 'memory', 'saga-journal.json'), { force: true })
+    const ok = await snapshot(ctx())
+    expect(ok.revision).toBe(0)
   })
 })

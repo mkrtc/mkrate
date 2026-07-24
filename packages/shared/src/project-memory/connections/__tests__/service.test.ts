@@ -139,8 +139,11 @@ describe('MemoryConnectionService — create', () => {
     expect(repo.listConnections()).toHaveLength(0);
   });
 
-  test('create rolls back config if credential write fails', async () => {
-    const { repo, service } = makeHarness({
+  test('create commits the connection on config commit; a failed credential write is deferred to recovery', async () => {
+    // Commit point = the durable config (connection) create. Once it lands, the
+    // saga rolls forward: a failing credential write does NOT undo the connection;
+    // the key is completed by recovery. The caller still sees credential_error.
+    const { repo, service, manager } = makeHarness({
       failSet: id => id.type === 'memory_api_key',
     });
 
@@ -148,6 +151,17 @@ describe('MemoryConnectionService — create', () => {
       code: 'credential_error',
     });
 
+    // Connection is committed; the key is pending (not rolled back).
+    expect(repo.listConnections()).toHaveLength(1);
+    expect(await manager.getMemoryApiKey(repo.listConnections()[0]!.connectionId)).toBeNull();
+    // The in-flight saga survives in the journal for recovery to finish.
+    expect(service.coordinator.getJournalStore().listEntries()).toHaveLength(1);
+  });
+
+  test('create rolls back fully when the config commit itself fails (stale root)', async () => {
+    const { repo, service } = makeHarness();
+    await expect(createConnection(service, { ...CONN, apiKey: 'sk-x', expectedRootRevision: 999 }))
+      .rejects.toMatchObject({ code: 'config_error' });
     expect(repo.listConnections()).toHaveLength(0);
   });
 });
@@ -182,7 +196,10 @@ describe('MemoryConnectionService — patch/update', () => {
     expect(await manager.getMemoryApiKey(created.connectionId)).toBe('sk-initial');
   });
 
-  test('if config patch succeeds but apiKey write fails, config remains and key is unchanged', async () => {
+  test('a combined config+apiKey patch is atomic: a failed apiKey write rolls back the config too', async () => {
+    // Under the A5 saga a patch that changes config AND the API key is one
+    // atomic operation. If the credential write fails, the whole operation is
+    // compensated — the config change is rolled back, not left half-applied.
     const { service, repo, manager } = makeHarness({
       failSet: id => id.type === 'memory_api_key',
     });
@@ -193,7 +210,7 @@ describe('MemoryConnectionService — patch/update', () => {
       apiKey: 'sk-bad-update',
     }))).rejects.toMatchObject({ code: 'credential_error' });
 
-    expect(repo.getConnection(created.connectionId)?.name).toBe('Edited');
+    expect(repo.getConnection(created.connectionId)?.name).toBe('Alpha');
     expect(await manager.hasMemoryApiKey(created.connectionId)).toBe(false);
   });
 
@@ -222,7 +239,10 @@ describe('MemoryConnectionService — delete', () => {
     expect(await manager.hasMemoryApiKey(created.connectionId)).toBe(false);
   });
 
-  test('delete fails when credential delete fails and does not remove config', async () => {
+  test('delete is forward-only: config delete commits, a failed credential delete is deferred to recovery', async () => {
+    // Fixed order: config delete (commit) → credential delete. Once the config
+    // delete lands, the saga never resurrects the connection; a failed credential
+    // delete is retried by recovery. The caller still sees credential_error.
     const { repo, service, manager } = makeHarness({
       failDelete: id => id.type === 'memory_api_key',
     });
@@ -234,17 +254,20 @@ describe('MemoryConnectionService — delete', () => {
       code: 'credential_error',
     });
 
-    expect(repo.getConnection(created.connectionId)).not.toBeNull();
+    // Config is deleted (never resurrected); the orphaned key awaits recovery.
+    expect(repo.getConnection(created.connectionId)).toBeNull();
     expect(await manager.getMemoryApiKey(created.connectionId)).toBe('sk-to-delete');
+    expect(service.coordinator.getJournalStore().listEntries()).toHaveLength(1);
   });
 
-  test('delete restores API key when config delete fails after credential deletion', async () => {
+  test('delete config-commit failure (stale root) rolls back with a no-op: connection and key intact', async () => {
     const { repo, service, manager } = makeHarness();
 
     const first = await createConnection(service, { ...CONN, apiKey: 'sk-stay' });
     const staleRoot = repo.getRootRevision();
 
-    // Make config root change so delete uses stale revision and fails.
+    // Make config root change so delete uses a stale revision and its config
+    // (commit) barrier fails before landing — a pre-commit failure → no-op rollback.
     await createConnection(service, { ...CONN, name: 'Second' });
 
     await expect(service.deleteConnection(first.connectionId, staleRoot)).rejects.toMatchObject({

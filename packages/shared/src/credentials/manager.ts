@@ -12,6 +12,7 @@ import type { LlmAuthType, LlmProviderType } from '../config/llm-connections.ts'
 import { SecureStorageBackend } from './backends/secure-storage.ts';
 import { debug } from '../utils/debug.ts';
 import { isUuid, toCanonicalUuid } from '../utils/uuid.ts';
+import { isCanonicalUuid } from '../utils/uuid-format.ts';
 
 export interface CredentialManagerOptions {
   /** Override the credential config directory (for tests and custom deployments). */
@@ -499,6 +500,145 @@ export class CredentialManager {
       }
     }
     return result;
+  }
+
+  // ============================================================
+  // A5 Saga Staging / Quarantine (internal)
+  //
+  // Encrypted before/after secret material for an in-flight memory saga, plus
+  // quarantine identities that preserve secret evidence when a saga cannot be
+  // resolved cleanly. Keyed by saga UUID + slot; a distinct credential type keeps
+  // them OUT of every generic memory listing.
+  // ============================================================
+
+  /** Stage a saga's before/after secret. */
+  async stageSagaSecret(sagaId: string, slot: 'before' | 'after', value: string): Promise<void> {
+    this.assertSagaId(sagaId);
+    await this.set({ type: 'memory_saga_stage', sagaId, sagaSlot: slot }, { value });
+  }
+
+  /** Read a saga's staged before/after secret, or null if absent. */
+  async readStagedSagaSecret(sagaId: string, slot: 'before' | 'after'): Promise<string | null> {
+    this.assertSagaId(sagaId);
+    await this.ensureInitialized();
+    const cred = await this.getInternal({ type: 'memory_saga_stage', sagaId, sagaSlot: slot }, { strict: true });
+    return cred?.value ?? null;
+  }
+
+  /** Delete a saga's staged before/after secret. Returns true if one was removed. */
+  async deleteStagedSagaSecret(sagaId: string, slot: 'before' | 'after'): Promise<boolean> {
+    this.assertSagaId(sagaId);
+    return this.delete({ type: 'memory_saga_stage', sagaId, sagaSlot: slot });
+  }
+
+  /** Move a saga's staged secret into a non-clobbering quarantine identity (evidence). */
+  async quarantineSagaSecret(sagaId: string, slot: 'before' | 'after', token: string, value: string): Promise<void> {
+    this.assertSagaId(sagaId);
+    await this.set({ type: 'memory_saga_quarantine', sagaId, sagaSlot: slot, quarantineToken: token }, { value });
+  }
+
+  private assertSagaId(sagaId: string): void {
+    if (!isCanonicalUuid(sagaId)) {
+      throw new Error(`Invalid saga id: ${sagaId}`);
+    }
+  }
+
+  private static readonly SAGA_STAGE_PREFIX = 'memory_saga_stage::';
+
+  /**
+   * List the distinct saga ids that currently have staging secrets. Used by
+   * startup recovery to detect orphan staging (a staged secret with no journal
+   * entry), which must fail closed.
+   */
+  async listSagaStageSagaIds(): Promise<string[]> {
+    await this.ensureInitialized();
+    const prefix = CredentialManager.SAGA_STAGE_PREFIX;
+    const seen = new Set<string>();
+    for (const backend of this.backends) {
+      if (!backend.listRawAccounts) continue;
+      for (const account of await backend.listRawAccounts()) {
+        if (!account.startsWith(prefix)) continue;
+        const sagaId = account.slice(prefix.length).split('::')[0];
+        if (sagaId && isCanonicalUuid(sagaId)) seen.add(sagaId);
+      }
+    }
+    return [...seen];
+  }
+
+  // ============================================================
+  // A5 Legacy Memory Credential Migration (internal)
+  //
+  // Pre-canonicalization builds wrote memory accounts verbatim, so a connection
+  // whose UUID contained uppercase produced `memory_api_key::{UPPERCASE}`. Those
+  // accounts no longer parse into a canonical CredentialId and are orphaned. The
+  // migration enumerates them RAW (bypassing CredentialId parsing) so it can move
+  // each to its canonical lowercase account.
+  // ============================================================
+
+  private static readonly MEMORY_ACCOUNT_PREFIX = 'memory_api_key::';
+
+  /**
+   * List legacy (non-canonical) memory API-key accounts across all backends.
+   * Returns the raw account string and the canonical connection id it should move
+   * to. Never returns secret values.
+   */
+  async listLegacyMemoryApiKeyAccounts(): Promise<Array<{ account: string; connectionId: string }>> {
+    await this.ensureInitialized();
+    const prefix = CredentialManager.MEMORY_ACCOUNT_PREFIX;
+    const seen = new Set<string>();
+    const results: Array<{ account: string; connectionId: string }> = [];
+    let sawRawCapableBackend = false;
+
+    for (const backend of this.backends) {
+      if (!backend.listRawAccounts) continue;
+      sawRawCapableBackend = true;
+      const accounts = await backend.listRawAccounts();
+      for (const account of accounts) {
+        if (seen.has(account) || !account.startsWith(prefix)) continue;
+        const segment = account.slice(prefix.length);
+        // Legacy iff the segment is a UUID (any case) that is NOT already canonical.
+        if (segment.includes('::') || !isUuid(segment) || isCanonicalUuid(segment)) continue;
+        const canonical = toCanonicalUuid(segment);
+        if (!canonical) continue;
+        seen.add(account);
+        results.push({ account, connectionId: canonical });
+      }
+    }
+
+    if (!sawRawCapableBackend) {
+      // No backend can enumerate raw accounts (e.g. injected fake without raw
+      // support): there is provably no legacy work this manager can see.
+      return [];
+    }
+    return results;
+  }
+
+  /** Read the secret value for a raw legacy memory account. */
+  async readLegacyMemoryApiKeyValue(account: string): Promise<string | null> {
+    if (!account.startsWith(CredentialManager.MEMORY_ACCOUNT_PREFIX)) {
+      throw new Error('not a memory_api_key account');
+    }
+    await this.ensureInitialized();
+    for (const backend of this.backends) {
+      if (!backend.getByAccount) continue;
+      const cred = await backend.getByAccount(account);
+      if (cred) return cred.value ?? null;
+    }
+    return null;
+  }
+
+  /** Delete a raw legacy memory account from every backend that supports it. */
+  async deleteLegacyMemoryApiKeyAccount(account: string): Promise<boolean> {
+    if (!account.startsWith(CredentialManager.MEMORY_ACCOUNT_PREFIX)) {
+      throw new Error('not a memory_api_key account');
+    }
+    await this.ensureInitialized();
+    let deleted = false;
+    for (const backend of this.backends) {
+      if (!backend.deleteByAccount) continue;
+      if (await backend.deleteByAccount(account)) deleted = true;
+    }
+    return deleted;
   }
 
   // ============================================================

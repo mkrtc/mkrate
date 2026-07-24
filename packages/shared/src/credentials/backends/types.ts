@@ -31,4 +31,19 @@ export interface CredentialBackend {
 
   /** List all credentials (optionally filtered by partial ID) */
   list(filter?: Partial<CredentialId>): Promise<CredentialId[]>;
+
+  // --- Raw account access (optional) -------------------------------------
+  // Used only by the A5 legacy-credential migration, which must operate on
+  // account strings that no longer parse into a canonical CredentialId (e.g. a
+  // legacy uppercase-UUID memory account). Backends that cannot enumerate raw
+  // account strings simply omit these; the migration then reports no legacy work.
+
+  /** List every stored account string verbatim (no CredentialId parsing). */
+  listRawAccounts?(): Promise<string[]>;
+
+  /** Read a credential by its raw account string. */
+  getByAccount?(account: string): Promise<StoredCredential | null>;
+
+  /** Delete a credential by its raw account string. Returns true if removed. */
+  deleteByAccount?(account: string): Promise<boolean>;
 }

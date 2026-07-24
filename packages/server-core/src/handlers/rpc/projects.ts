@@ -158,22 +158,56 @@ async function resolveProjectForMemory(ctx: RequestContext, projectIdOrSlug: str
   return { workspaceId, projectId: project.config.id }
 }
 
-const memoryConnectionRepository: { current: MemoryConnectionRepository | null } = {
-  current: null,
-}
+// A single memory runtime per server process. The repository, service (which owns
+// the A5 saga coordinator, journal, and cross-process lease), and the one-shot
+// recovery gate are all shared so a crashed saga is resolved exactly once before
+// any handler mutates memory state.
+const memoryRuntime: {
+  repo: MemoryConnectionRepository | null
+  service: MemoryConnectionService | null
+  ready: Promise<void> | null
+} = { repo: null, service: null, ready: null }
 
 function getMemoryConnectionRepo(): MemoryConnectionRepository {
-  if (!memoryConnectionRepository.current) {
-    memoryConnectionRepository.current = new MemoryConnectionRepository()
+  if (!memoryRuntime.repo) {
+    memoryRuntime.repo = new MemoryConnectionRepository()
   }
-  return memoryConnectionRepository.current
+  return memoryRuntime.repo
 }
 
 function getMemoryConnectionService(): MemoryConnectionService {
-  return new MemoryConnectionService({
-    repository: getMemoryConnectionRepo(),
-    credentialManager: getCredentialManager(),
-  })
+  if (!memoryRuntime.service) {
+    memoryRuntime.service = new MemoryConnectionService({
+      repository: getMemoryConnectionRepo(),
+      credentialManager: getCredentialManager(),
+    })
+  }
+  return memoryRuntime.service
+}
+
+/**
+ * Gate every memory handler on durable startup recovery + legacy migration,
+ * running them exactly once per process. Fails closed: if recovery or migration
+ * cannot complete (corrupt journal, migration collision, …) the gate rejects and
+ * the handler rejects with it, rather than operating on unrecovered state. On
+ * failure the gate is cleared so a later request can retry once the cause is fixed.
+ */
+function ensureMemoryReady(): Promise<void> {
+  if (!memoryRuntime.ready) {
+    const service = getMemoryConnectionService()
+    memoryRuntime.ready = service.ensureReady().catch((error) => {
+      memoryRuntime.ready = null
+      throw error
+    })
+  }
+  return memoryRuntime.ready
+}
+
+/** Test-only: drop the shared memory runtime so a suite can start from clean state. */
+export function __resetMemoryConnectionRuntimeForTests(): void {
+  memoryRuntime.repo = null
+  memoryRuntime.service = null
+  memoryRuntime.ready = null
 }
 
 function getEnvironmentConnection(repo: MemoryConnectionRepository): MemoryConnectionConfig {
@@ -437,6 +471,8 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
   })
 
   // Project memory backend status for UI. Uses request workspace context; no renderer scopes.
+  // (Operates on the Qdrant project-memory store, not the saga-managed connection
+  // state, so it is not gated on connection recovery.)
   server.handle(RPC_CHANNELS.projects.MEMORY_STATUS, async () => {
     return normalizeProjectMemoryStatus(await getProjectMemoryStore().status())
   })
@@ -470,10 +506,14 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
   })
 
   // List all memory connections + derived environment connection in a revisioned snapshot.
-  server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTIONS_SNAPSHOT, async () => buildConnectionSnapshot())
+  server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTIONS_SNAPSHOT, async () => {
+    await ensureMemoryReady()
+    return buildConnectionSnapshot()
+  })
 
   // Get one memory connection detail by id.
   server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTION_GET, async (_ctx, connectionId: string): Promise<ProjectMemoryConnectionDetail> => {
+    await ensureMemoryReady()
     if (typeof connectionId !== 'string' || !connectionId.trim()) {
       throw new Error('connectionId is required')
     }
@@ -482,6 +522,7 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   // Create a new memory connection entry (root revision required).
   server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTION_CREATE, async (_ctx, input: ProjectMemoryConnectionCreateRequest): Promise<ProjectMemoryConnectionSummary> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory connection create input')
     const { expectedRootRevision, name, url, collection, embedding, enabled, proactiveRemoteSearch, apiKey } = input
     return getMemoryConnectionService().createConnection({
@@ -498,6 +539,7 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   // Update name/enabled/proactiveRemoteSearch on a stored memory connection.
   server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTION_UPDATE, async (_ctx, input: ProjectMemoryConnectionUpdateRequest): Promise<ProjectMemoryConnectionSummary> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory connection update input')
     const { connectionId, expectedRevision, ...patch } = input
     return getMemoryConnectionService().patchConnection({ connectionId, expectedRevision, ...patch })
@@ -505,6 +547,7 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   // Delete a stored memory connection by id (root revision required).
   server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTION_DELETE, async (_ctx, input: ProjectMemoryConnectionDeleteRequest): Promise<{ success: true }> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory connection delete input')
     const { connectionId, expectedRootRevision } = input
     await getMemoryConnectionService().deleteConnection(connectionId, expectedRootRevision)
@@ -513,6 +556,7 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   // Check a Qdrant connection without persisting it or storing the provided API key.
   server.handle(RPC_CHANNELS.projects.MEMORY_CONNECTION_CHECK, async (_ctx, input: ProjectMemoryConnectionCheckRequest): Promise<ProjectMemoryConnectionCheckResult> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory connection check input')
     const { url, collection, embedding, apiKey } = input
     if (typeof url !== 'string' || !url.trim()) throw new Error('url is required')
@@ -532,28 +576,28 @@ export function registerProjectsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   // Create a new workspace/project/custom memory space on a connection.
   server.handle(RPC_CHANNELS.projects.MEMORY_SPACE_CREATE, async (_ctx, input: ProjectMemorySpaceCreateRequest): Promise<ProjectMemoryConnectionDetail> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory space create input')
-    const repo = getMemoryConnectionRepo()
     const { connectionId, expectedRevision, ...space } = input
-    const result = await repo.addSpace(connectionId, space, expectedRevision)
+    const result = await getMemoryConnectionService().addSpace(connectionId, space, expectedRevision)
     return buildConnectionDetail(result.connection.connectionId)
   })
 
   // Update one memory space on a connection.
   server.handle(RPC_CHANNELS.projects.MEMORY_SPACE_UPDATE, async (_ctx, input: ProjectMemorySpaceUpdateRequest): Promise<ProjectMemoryConnectionDetail> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory space update input')
-    const repo = getMemoryConnectionRepo()
     const { connectionId, expectedRevision, spaceId, ...patch } = input
-    const result = await repo.updateSpace(connectionId, spaceId, patch, expectedRevision)
+    const result = await getMemoryConnectionService().updateSpace(connectionId, spaceId, patch, expectedRevision)
     return buildConnectionDetail(result.connection.connectionId)
   })
 
   // Delete one memory space from a connection.
   server.handle(RPC_CHANNELS.projects.MEMORY_SPACE_DELETE, async (_ctx, input: ProjectMemorySpaceDeleteRequest): Promise<ProjectMemoryConnectionDetail> => {
+    await ensureMemoryReady()
     if (!input || typeof input !== 'object') throw new Error('Invalid memory space delete input')
-    const repo = getMemoryConnectionRepo()
     const { connectionId, expectedRevision, spaceId } = input
-    const connection = await repo.deleteSpace(connectionId, spaceId, expectedRevision)
+    const connection = await getMemoryConnectionService().deleteSpace(connectionId, spaceId, expectedRevision)
     return buildConnectionDetail(connection.connectionId)
   })
 }
