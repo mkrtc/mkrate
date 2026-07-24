@@ -26,10 +26,9 @@ A0 is therefore re-scoped as post-hoc verification and A8-style closure. **A4a i
 
 ### 2.3 Credential/config saga protocol
 
-- **Disposition:** **OPEN — confirmed implementation gap**
-- **Owner:** A5 closure work
-- **Evidence:** `122f176` adds in-process credential coordination and compensation in [service.ts](../packages/shared/src/project-memory/connections/service.ts), but repository search finds no durable saga journal, `stageSecret`, or `startupRecovery` implementation.
-- **Required closure:** durable secret-free intent records, idempotent crash replay, reconciliation, and fail-closed startup recovery.
+- **Disposition:** **PASS (Linux baseline; independently accepted)**
+- **Evidence:** `85ceecf` adds strict write-ahead barriers, a versioned secret-free journal, cross-process saga lease, encrypted staging/quarantine, deterministic rollback/forward recovery, fail-closed startup gating, credential-mode convergence, legacy-uppercase migration, and coordinator-routed connection/space mutations in [saga.ts](../packages/shared/src/project-memory/connections/saga.ts), [saga-journal.ts](../packages/shared/src/project-memory/connections/saga-journal.ts), [service.ts](../packages/shared/src/project-memory/connections/service.ts), and their tests.
+- **Verification boundary:** accepted on Linux x86_64 with Bun `1.3.8`; macOS/Windows evidence remains separate.
 
 ### 2.4 Repository FS containment and bounded I/O
 
@@ -74,9 +73,9 @@ A0 is therefore re-scoped as post-hoc verification and A8-style closure. **A4a i
 ### 2.11 A4a and A8 status
 
 - **A4a:** **MOOT / NOT DISPATCHABLE**. Its contract files already exist and pass; dispatch would revive an obsolete predecessor sequence and risk file overlap.
-- **A8-style closure:** **PENDING**. Independently review this re-baseline, then review the A5 implementation and platform-evidence decision before any release or Wave B/C claim.
+- **A8-style closure:** **PENDING FINAL REVIEW**. Corrected A0 and A5 are independently accepted; platform evidence/policy and final integrated review remain before any release or Wave B/C claim.
 
-## 3. A5 saga closure contract
+## 3. A5 saga closure contract (implemented at `85ceecf`)
 
 ### Canonical operation names
 
@@ -130,7 +129,7 @@ Recorded Friday, July 24, 2026: **96 pass / 0 fail / 288 expect() calls**.
 bun test packages/shared/src/project-memory/ packages/shared/src/credentials/
 ```
 
-Recorded Friday, July 24, 2026: **140 pass / 0 fail / 404 expect() calls**.
+Recorded after accepted A5, Friday, July 24, 2026: **228 pass / 0 fail / 774 expect() calls**. The dedicated real child-process crash matrix is **34 pass / 0 fail / 201 expect() calls**; server memory tests are **25 pass / 0 fail / 101 expect() calls**; `typecheck:all` and `validate:ci` pass.
 
 The former `92 pass / 3 fail` result and its three named failures are superseded; the assertions remain real and now pass because the landed code was hardened.
 
@@ -138,19 +137,18 @@ The former `92 pass / 3 fail` result and its three named failures are superseded
 
 ### Confirmed open implementation work
 
-1. **A5 durable saga journal and startup recovery** — owner: the serial A5 implementation/review chain.
+No remaining A5 implementation blocker is known at the accepted Linux scope.
 
 ### Evidence/acceptance work
 
-1. Independent acceptance of the three re-baselined A0 documents.
-2. macOS and Windows FS/race verification, or an explicit supported-platform decision.
-3. A8-style independent review after A5 and platform closure.
+1. macOS and Windows FS/race verification, or an explicit supported-platform decision.
+2. A8-style independent integrated review after platform closure.
 
 ### No-overlap rules
 
 - `packages/shared/src/project-memory/connections/repository.ts` remains single-owner.
 - Do not dispatch a parallel A4a worker over `limits.ts`, `types.ts`, `identity.ts`, or `validation.ts`.
-- While A5 is active, `packages/shared/src/credentials/**` and credential-coordination files belong only to the A5 chain.
+- Future changes to `packages/shared/src/credentials/**` and credential coordination require a new explicitly owned security scope.
 - Serial review/integration is mandatory whenever expected file sets overlap.
 
-Wave B/C and release-readiness claims remain blocked until the evidence/acceptance work and A5 closure complete.
+Wave B/C and release-readiness claims remain blocked until platform evidence/policy and the final A8-style review complete.

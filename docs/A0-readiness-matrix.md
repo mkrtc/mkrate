@@ -20,9 +20,9 @@
 The historical pre-implementation sequence is no longer operative. A1/A2/A3/A6/A7-class work landed before this re-baseline and is verified below. A0 now serves as a post-hoc verification and A8-style closure baseline.
 
 - **A4a:** moot; do not dispatch.
-- **A5:** durable saga journal and startup recovery remain open.
+- **A5:** implemented and independently accepted at `85ceecf` on the Linux baseline.
 - **Cross-platform:** Linux results exist; macOS and Windows FS/race results do not.
-- **Wave B/C and release readiness:** blocked until this re-baseline is independently accepted, A5 closes, and the platform-evidence decision closes.
+- **Wave B/C and release readiness:** blocked until the platform-evidence decision and final A8-style review close.
 
 ## Readiness disposition
 
@@ -33,10 +33,10 @@ The historical pre-implementation sequence is no longer operative. A1/A2/A3/A6/A
 | **A2** | Atomic mutation, cross-process locking, fenced reread, recovery | Implemented by `1577b11`; stale-backup and two-process revision-conflict assertions pass | **PASS (Linux baseline)** |
 | **A3** | Credential backend/manager durability and isolated test roots | Implemented by `aaeef98`; credential suite and full domain suite pass without using real `~/.craft-agent` credentials | **PASS (Linux baseline)** |
 | **A4a** | Historical decision-only predecessor worker | Contract files already exist and pass; dispatch would repeat obsolete sequencing and risk overlap | **MOOT / NOT DISPATCHABLE** |
-| **A5** | Durable, secret-free config/credential saga and crash recovery | `122f176` coordinates credentials with in-process compensation, but no durable journal or `startupRecovery` exists | **OPEN** |
+| **A5** | Durable, secret-free config/credential saga and crash recovery | `85ceecf`; write-ahead barriers, encrypted staging/quarantine, fail-closed recovery, legacy migration, coordinator gating, and 34-case real subprocess crash matrix independently accepted | **PASS (Linux baseline)** |
 | **A6** | Pure default-deny managed-ref resolver | Implemented by `2c961d1`; membership, write, global, and deny-before-callback tests pass | **PASS (scoped)** |
 | **A7** | Implemented Qdrant guard set | Implemented by `2c961d1`; URL, userinfo, redirect, ambient-credential, timeout, and request-body protections are covered | **PASS (scoped)** |
-| **A8** | Independent integrated closure review | This re-baseline defines the review input; acceptance still required after A5/platform closure | **PENDING INDEPENDENT ACCEPTANCE** |
+| **A8** | Independent integrated closure review | A0 and A5 are accepted; final integrated review still waits on the platform-evidence decision | **PENDING FINAL REVIEW** |
 | **Platform matrix** | Linux/macOS/Windows FS and race behavior | Linux recorded; macOS and Windows not run | **EVIDENCE GAP** |
 
 ## Commit-to-evidence map
@@ -46,9 +46,10 @@ The historical pre-implementation sequence is no longer operative. A1/A2/A3/A6/A
 | `1577b11` | A1/A2 repository hardening | [repository.ts](../packages/shared/src/project-memory/connections/repository.ts), [repository.test.ts](../packages/shared/src/project-memory/connections/__tests__/repository.test.ts) |
 | `aaeef98` | A3 credential hardening and isolated-root tests | [secure-storage.ts](../packages/shared/src/credentials/backends/secure-storage.ts), [manager.ts](../packages/shared/src/credentials/manager.ts), [memory-credentials.test.ts](../packages/shared/src/credentials/__tests__/memory-credentials.test.ts) |
 | `2c961d1` | A6 resolver and A7 Qdrant guards | [resolver.ts](../packages/shared/src/project-memory/connections/resolver.ts), [resolver.test.ts](../packages/shared/src/project-memory/connections/__tests__/resolver.test.ts), [qdrant.ts](../packages/shared/src/project-memory/qdrant.ts), [qdrant.test.ts](../packages/shared/src/project-memory/qdrant.test.ts) |
-| `122f176` | Credential-coordinating service, but not durable A5 recovery | [service.ts](../packages/shared/src/project-memory/connections/service.ts), [service.test.ts](../packages/shared/src/project-memory/connections/__tests__/service.test.ts) |
+| `122f176` | Initial in-process credential coordination | [service.ts](../packages/shared/src/project-memory/connections/service.ts), [service.test.ts](../packages/shared/src/project-memory/connections/__tests__/service.test.ts) |
+| `85ceecf` | Durable A5 saga, encrypted staging/quarantine, startup recovery, coordinator gating, crash matrix | [saga.ts](../packages/shared/src/project-memory/connections/saga.ts), [saga-journal.ts](../packages/shared/src/project-memory/connections/saga-journal.ts), [saga-recovery.test.ts](../packages/shared/src/project-memory/connections/__tests__/saga-recovery.test.ts) |
 
-All four commits are ancestors of the baseline SHA.
+The first four hardening commits are ancestors of the implementation baseline; `85ceecf` is the independently accepted A5 descendant.
 
 ## Exact verification ledger
 
@@ -70,9 +71,20 @@ This command includes the real, unskipped symlink-containment, stale-backup/EACC
 bun test packages/shared/src/project-memory/ packages/shared/src/credentials/
 ```
 
-**Recorded Friday, July 24, 2026:** `140 pass / 0 fail / 404 expect() calls`.
+**Recorded after accepted A5 (`85ceecf`), Friday, July 24, 2026:** `228 pass / 0 fail / 774 expect() calls`.
 
-This aggregate covers the credential, resolver, service, repository, validation, and Qdrant tests used by this re-baseline. Credential tests use in-memory or injected temporary roots and include a guard against the real default credential path.
+This aggregate covers credentials, resolver, service, repository, validation, Qdrant, journal, lease, saga, migration, quarantine, and recovery tests. Credential tests use in-memory or injected temporary roots and include a guard against the real default credential path.
+
+### A5 crash and server verification
+
+```bash
+bun test packages/shared/src/project-memory/connections/__tests__/saga-recovery.test.ts
+bun test packages/server-core/src/handlers/rpc/projects-memory.test.ts packages/server-core/src/sessions/session-memory-reconciliation.test.ts packages/server-core/src/sessions/session-memory-runtime.test.ts
+bun run typecheck:all
+bun run validate:ci
+```
+
+Recorded results: real child-process crash matrix **34 pass / 0 fail / 201 expect() calls**; server memory **25 pass / 0 fail / 101 expect() calls**; `typecheck:all` PASS; `validate:ci` PASS. Independent audit verified real `~/.craft-agent` credential/config files and tree remained byte-identical.
 
 ### Shared typecheck
 
@@ -112,5 +124,5 @@ The implementation is designed to fail closed, but design intent is not cross-pl
 
 - A6 PASS is for the pure managed-reference resolver contract and tests, not unrelated handler paths.
 - A7 PASS is for the implemented guard set. This matrix does not claim untested DNS rebinding, private-address, proxy, response-size, or OS-network behavior.
-- A5 is the only confirmed open implementation gap in this artifact set.
+- A5 is independently accepted on Linux; this does not supply missing macOS/Windows FS/race evidence or complete A8.
 - No A4a or other predecessor worker may be launched from the obsolete historical sequence.
