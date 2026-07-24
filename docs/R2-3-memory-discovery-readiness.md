@@ -27,7 +27,7 @@ A0 is therefore re-scoped as post-hoc verification and A8-style closure. **A4a i
 ### 2.3 Credential/config saga protocol
 
 - **Disposition:** **PASS (Linux baseline; independently accepted)**
-- **Evidence:** `85ceecf` adds strict write-ahead barriers, a versioned secret-free journal, cross-process saga lease, encrypted staging/quarantine, deterministic rollback/forward recovery, fail-closed startup gating, credential-mode convergence, legacy-uppercase migration, and coordinator-routed connection/space mutations in [saga.ts](../packages/shared/src/project-memory/connections/saga.ts), [saga-journal.ts](../packages/shared/src/project-memory/connections/saga-journal.ts), [service.ts](../packages/shared/src/project-memory/connections/service.ts), and their tests.
+- **Evidence:** `72e6684` adds strict write-ahead barriers, a versioned secret-free journal, cross-process saga lease, encrypted staging/quarantine, deterministic rollback/forward recovery, fail-closed startup gating, credential-mode convergence, legacy-uppercase migration, and coordinator-routed connection/space mutations in [saga.ts](../packages/shared/src/project-memory/connections/saga.ts), [saga-journal.ts](../packages/shared/src/project-memory/connections/saga-journal.ts), [service.ts](../packages/shared/src/project-memory/connections/service.ts), and their tests.
 - **Verification boundary:** accepted on Linux x86_64 with Bun `1.3.8`; macOS/Windows evidence remains separate.
 
 ### 2.4 Repository FS containment and bounded I/O
@@ -75,7 +75,7 @@ A0 is therefore re-scoped as post-hoc verification and A8-style closure. **A4a i
 - **A4a:** **MOOT / NOT DISPATCHABLE**. Its contract files already exist and pass; dispatch would revive an obsolete predecessor sequence and risk file overlap.
 - **A8-style closure:** **PENDING FINAL REVIEW**. Corrected A0 and A5 are independently accepted; platform evidence/policy and final integrated review remain before any release or Wave B/C claim.
 
-## 3. A5 saga closure contract (implemented at `85ceecf`)
+## 3. A5 saga closure contract (implemented at `72e6684`)
 
 ### Canonical operation names
 
@@ -129,7 +129,7 @@ Recorded Friday, July 24, 2026: **96 pass / 0 fail / 288 expect() calls**.
 bun test packages/shared/src/project-memory/ packages/shared/src/credentials/
 ```
 
-Recorded after accepted A5, Friday, July 24, 2026: **228 pass / 0 fail / 774 expect() calls**. The dedicated real child-process crash matrix is **34 pass / 0 fail / 201 expect() calls**; server memory tests are **25 pass / 0 fail / 101 expect() calls**; `typecheck:all` and `validate:ci` pass.
+Recorded after accepted A5, Friday, July 24, 2026: **230 pass / 0 fail**. The dedicated real child-process crash matrix is **34 pass / 0 fail / 201 expect() calls**; server memory tests are **25 pass / 0 fail / 101 expect() calls**; `typecheck:all` and `validate:ci` pass.
 
 The former `92 pass / 3 fail` result and its three named failures are superseded; the assertions remain real and now pass because the landed code was hardened.
 
