@@ -5,6 +5,7 @@
   "description": "Mkrate — a Claude Code-like desktop agent. Independent fork of Craft Agents.",
   "type": "module",
   "private": true,
+  "packageManager": "bun@1.3.10",
   "trustedDependencies": [
     "@sentry/cli",
     "@vscode/ripgrep",
@@ -22,6 +23,7 @@
   ],
   "scripts": {
     "test": "bun test && for f in $(find . -name '*.isolated.ts' -not -path './node_modules/*'); do bun test \"$f\" || exit 1; done",
+    "memory:evidence": "bun run scripts/memory-platform-evidence.ts",
     "typecheck": "bun run typecheck:shared",
     "typecheck:shared": "cd packages/shared && bun run tsc --noEmit",
     "typecheck:staged": "bash scripts/typecheck-staged.sh",

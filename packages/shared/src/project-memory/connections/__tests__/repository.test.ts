@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { isCanonicalUuid } from '../../../utils/uuid-format.ts';
 import { MEMORY_GLOBAL_SPACE_NAME, MemoryError, type CreateMemoryConnectionInput } from '../types.ts';
@@ -54,6 +55,19 @@ async function runCreateRaceWorker(request: Record<string, string>): Promise<Rac
   ]);
   if (exitCode !== 0) throw new Error(`race worker exited ${exitCode}: ${stderr}`);
   return JSON.parse(stdout.trim()) as RaceWorkerResult;
+}
+
+function setWindowsReadDenied(path: string, denied: boolean): void {
+  const args = denied
+    ? [path, '/deny', '*S-1-1-0:(RD)', '/Q']
+    : [path, '/remove:d', '*S-1-1-0', '/Q'];
+  const result = spawnSync('icacls.exe', args, {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    throw new Error(`Windows ACL capability probe failed (${denied ? 'deny' : 'restore'}, exit ${result.status ?? 'unknown'})`);
+  }
 }
 
 /** Create a connection using the repo's current root revision. */
@@ -255,16 +269,22 @@ describe('MemoryConnectionRepository — spaces', () => {
 });
 
 describe('MemoryConnectionRepository — durability, security, recovery', () => {
-  test('writes files with restrictive permissions and no leftover temp (POSIX)', async () => {
+  test('atomic writes leave no legacy fixed-name temporary file', async () => {
     const repo = makeRepo();
     await create(repo);
     await create(repo, { ...CONN, name: 'Beta' }); // second write creates a backup
     expect(existsSync(`${repo.getFilePath()}.tmp`)).toBe(false);
-    if (process.platform !== 'win32') {
+  });
+
+  if (process.platform !== 'win32') {
+    test('POSIX capability — writes primary and backup with restrictive file modes', async () => {
+      const repo = makeRepo();
+      await create(repo);
+      await create(repo, { ...CONN, name: 'Beta' });
       expect(statSync(repo.getFilePath()).mode & 0o077).toBe(0);
       expect(statSync(repo.getBackupPath()).mode & 0o077).toBe(0);
-    }
-  });
+    });
+  }
 
   test('recovers from backup when the primary is corrupted', async () => {
     const repo = makeRepo();
@@ -297,56 +317,101 @@ describe('MemoryConnectionRepository — durability, security, recovery', () => 
     expect(repo.load().revision).toBe(0);
   });
 
-  test('refuses to follow a symlinked primary (invalid_config)', async () => {
-    if (process.platform === 'win32') return;
-    const repo = makeRepo();
-    await create(repo);
-    const decoy = join(dir, 'decoy.json');
-    writeFileSync(decoy, '{"version":1,"revision":0,"installationId":"x","connections":[]}');
-    unlinkSync(repo.getFilePath());
-    symlinkSync(decoy, repo.getFilePath());
-    expect(lstatSync(repo.getFilePath()).isSymbolicLink()).toBe(true);
-    try {
-      new MemoryConnectionRepository({ configDir: dir }).load();
-      throw new Error('expected load to throw');
-    } catch (e) {
-      expect((e as MemoryError).code).toBe('invalid_config');
-    }
-  });
-
-  test('rejects a symlinked memory directory without writing outside configDir', async () => {
-    if (process.platform === 'win32') return;
-    const outside = mkdtempSync(join(tmpdir(), 'mem-repo-outside-'));
-    try {
-      symlinkSync(outside, join(dir, 'memory'), 'dir');
+  if (process.platform !== 'win32') {
+    test('POSIX capability — refuses to follow a symlinked primary', async () => {
       const repo = makeRepo();
-      await expect(repo.ensureInstallationId()).rejects.toMatchObject({ code: 'invalid_config' });
-      expect(existsSync(join(outside, 'connections.json'))).toBe(false);
-      expect(existsSync(join(outside, 'connections.json.bak'))).toBe(false);
-    } finally {
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
+      await create(repo);
+      const decoy = join(dir, 'decoy.json');
+      writeFileSync(decoy, '{"version":1,"revision":0,"installationId":"x","connections":[]}');
+      unlinkSync(repo.getFilePath());
+      symlinkSync(decoy, repo.getFilePath());
+      expect(lstatSync(repo.getFilePath()).isSymbolicLink()).toBe(true);
+      try {
+        new MemoryConnectionRepository({ configDir: dir }).load();
+        throw new Error('expected load to throw');
+      } catch (e) {
+        expect((e as MemoryError).code).toBe('invalid_config');
+      }
+    });
 
-  test('does not mutate from a stale backup when an existing primary is EACCES', async () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
-    const repo = makeRepo();
-    await create(repo);                                  // primary=[Alpha]
-    await create(repo, { ...CONN, name: 'Beta' });       // backup=[Alpha], primary=[Alpha,Beta]
-    const primary = repo.getFilePath();
-    chmodSync(primary, 0o000);
-    try {
-      expect(() => readFileSync(primary, 'utf8')).toThrow();
-      const contender = new MemoryConnectionRepository({ configDir: dir, now: () => 5_000 });
-      await expect(
-        contender.createConnection({ ...CONN, name: 'Gamma' }, 1),
-      ).rejects.toMatchObject({ code: 'storage_error' });
-    } finally {
-      chmodSync(primary, 0o600);
-    }
-    const reloaded = new MemoryConnectionRepository({ configDir: dir }).load();
-    expect(reloaded.connections.map(connection => connection.name)).toEqual(['Alpha', 'Beta']);
-  });
+    test('POSIX capability — rejects a symlinked memory directory without writing outside configDir', async () => {
+      const outside = mkdtempSync(join(tmpdir(), 'mem-repo-outside-'));
+      try {
+        symlinkSync(outside, join(dir, 'memory'), 'dir');
+        const repo = makeRepo();
+        await expect(repo.ensureInstallationId()).rejects.toMatchObject({ code: 'invalid_config' });
+        expect(existsSync(join(outside, 'connections.json'))).toBe(false);
+        expect(existsSync(join(outside, 'connections.json.bak'))).toBe(false);
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test('POSIX capability — access-denied primary cannot mutate from a stale backup', async () => {
+      if (process.getuid?.() === 0) {
+        throw new Error('POSIX access-denied capability probe requires a non-root runner');
+      }
+      const repo = makeRepo();
+      await create(repo);                                  // primary=[Alpha]
+      await create(repo, { ...CONN, name: 'Beta' });       // backup=[Alpha], primary=[Alpha,Beta]
+      const primary = repo.getFilePath();
+      chmodSync(primary, 0o000);
+      try {
+        expect(() => readFileSync(primary, 'utf8')).toThrow();
+        const contender = new MemoryConnectionRepository({ configDir: dir, now: () => 5_000 });
+        await expect(
+          contender.createConnection({ ...CONN, name: 'Gamma' }, 1),
+        ).rejects.toMatchObject({ code: 'storage_error' });
+      } finally {
+        chmodSync(primary, 0o600);
+      }
+      const reloaded = new MemoryConnectionRepository({ configDir: dir }).load();
+      expect(reloaded.connections.map(connection => connection.name)).toEqual(['Alpha', 'Beta']);
+    });
+  } else {
+    test('Windows capability — rejects a junctioned memory directory without writing outside configDir', async () => {
+      const outside = mkdtempSync(join(tmpdir(), 'mem-repo-outside-'));
+      try {
+        const junction = join(dir, 'memory');
+        symlinkSync(outside, junction, 'junction');
+        expect(lstatSync(junction).isSymbolicLink()).toBe(true);
+        const repo = makeRepo();
+        await expect(repo.ensureInstallationId()).rejects.toMatchObject({ code: 'invalid_config' });
+        expect(existsSync(join(outside, 'connections.json'))).toBe(false);
+        expect(existsSync(join(outside, 'connections.json.bak'))).toBe(false);
+      } finally {
+        const junction = join(dir, 'memory');
+        if (existsSync(junction)) unlinkSync(junction);
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test('Windows capability — ACL-denied primary cannot mutate from a stale backup', async () => {
+      const repo = makeRepo();
+      await create(repo);
+      await create(repo, { ...CONN, name: 'Beta' });
+      const primary = repo.getFilePath();
+      setWindowsReadDenied(primary, true);
+      try {
+        let readCode: string | undefined;
+        try {
+          readFileSync(primary, 'utf8');
+        } catch (error) {
+          readCode = (error as NodeJS.ErrnoException).code;
+        }
+        expect(readCode).toBeDefined();
+        expect(['EACCES', 'EPERM']).toContain(readCode!);
+        const contender = new MemoryConnectionRepository({ configDir: dir, now: () => 5_000 });
+        await expect(
+          contender.createConnection({ ...CONN, name: 'Gamma' }, 1),
+        ).rejects.toMatchObject({ code: 'storage_error' });
+      } finally {
+        setWindowsReadDenied(primary, false);
+      }
+      const reloaded = new MemoryConnectionRepository({ configDir: dir }).load();
+      expect(reloaded.connections.map(connection => connection.name)).toEqual(['Alpha', 'Beta']);
+    });
+  }
 
   test('never backs up a corrupt primary (self-heals on next write)', async () => {
     const repo = makeRepo();
