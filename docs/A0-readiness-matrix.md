@@ -1,94 +1,116 @@
-# Corrected A0 / A1–A7 / R1 / R2 / R2-3 Readiness Matrix
+# A0 Post-Hoc Readiness Matrix
 
-**Date (authoritative):** Wednesday, July 15, 2026 at 05:25 PM GMT+3
-**Working tree:** `work/memory-connections-wave-a-integration`
-**Baseline SHA:** `06e8c4db`
-**Current integration tip:** this committed A0 docs tip (record `git rev-parse HEAD` when dispatching/auditing)
+**Date (authoritative):** Friday, July 24, 2026 (GMT+3)
+**Implementation baseline SHA:** `ce02a3b359fe35db328fcf3e64a34a473bec76a5` on `main`
+**Artifact branch:** `docs/a0-posthoc-rebaseline` (the reviewed docs commit is a docs-only descendant of the implementation baseline)
+**Verification environment:** Linux x86_64, Bun `1.3.8`
+**Purpose:** reproducible post-hoc verification / A8-style closure baseline
 
-## Legend
+## Status legend
 
-- **PASS** – verified by evidence and no unresolved blocker for this scope.
-- **FAIL** – verifiable failure remains.
-- **BLOCKED** – not permitted to dispatch due policy or dependency not yet ready.
-- **NOT RUN** – not executed in this corrective task.
-- **NOT READY** – insufficient policy or evidence to permit implementation.
-- **PENDING RE-AUDIT** – docs are committed but not accepted until an independent re-audit passes.
-- **NEXT AFTER A0 PASS** – safe to dispatch only after A0 re-audit accepts.
-- **REMEDIATION QUEUED** – known failing area with an ordered future remediation worker; not a release-ready state.
-- **FINAL GATE** – final integration/audit step after remediation workers.
-- **TRACKED** – audit findings are mapped and drive remediation order.
+- **PASS (Linux baseline)** — implemented and covered by the recorded passing Linux suites.
+- **PASS (scoped)** — the named implementation/test scope passes; no broader claim is implied.
+- **OPEN** — confirmed implementation gap.
+- **EVIDENCE GAP** — implementation may exist, but required platform evidence was not produced.
+- **MOOT / NOT DISPATCHABLE** — the historical worker premise was overtaken by landed implementation.
+- **PENDING INDEPENDENT ACCEPTANCE** — documentation was re-baselined but has not yet passed its follow-up independent review.
 
-## Gate summary (required statement)
+## Gate summary
 
-- **A0 docs** are committed and **pending independent re-audit**.
-- **A1+** dispatch remains **BLOCKED** until independent re-audit accepts this corrected A0 set.
-- After A0 acceptance, **A4a** is the first safe pure-contract/decision worker and must be re-audited before A1.
-- **Wave A remediation** may proceed only in the documented order after each required review gate; **Wave B/C are forbidden** until Wave A closure audit passes.
+The historical pre-implementation sequence is no longer operative. A1/A2/A3/A6/A7-class work landed before this re-baseline and is verified below. A0 now serves as a post-hoc verification and A8-style closure baseline.
 
-## Readiness table
+- **A4a:** moot; do not dispatch.
+- **A5:** durable saga journal and startup recovery remain open.
+- **Cross-platform:** Linux results exist; macOS and Windows FS/race results do not.
+- **Wave B/C and release readiness:** blocked until this re-baseline is independently accepted, A5 closes, and the platform-evidence decision closes.
 
-| ID | Area | Required outcome | Current outcome | Status |
-|---|---|---|---|---|
-| **A0** | Corrective artifact committed + gate semantics | Docs-only commit with explicit BLOCKED gates for A1+ before A0 acceptance | Corrected docs are committed; independent re-audit still required | **PENDING RE-AUDIT** |
-| **A4a** | Pure contract/decision freeze | Owns only `limits.ts`, `types.ts`, `identity.ts`, `validation.ts`, related tests; no product-code implementation | First safe worker after accepted A0; must be re-audited before A1 | **NEXT AFTER A0 PASS** |
-| **A1** | Path containment + bounded no-follow reads | Canonical containment and bounded reads proven before mutation work | Symlink/path containment failures remain; dispatch only after accepted A4a | **REMEDIATION QUEUED** |
-| **A2** | Repository mutation durability + cross-process locking | Atomic write/temp/backup/recovery + fenced reread under lock | Stale-backup/EACCES and two-process same-revision failures remain; waits for A1 | **REMEDIATION QUEUED** |
-| **A3** | Credential backend + manager + interface durability | Injectable roots, fail-closed errors, no real credential path mutation, compatible credential APIs | Policy documented; product enforcement missing; waits for A2/A4a where interfaces overlap | **REMEDIATION QUEUED** |
-| **A5** | Credential/config saga | Sole-writer service, secret-safe journal, idempotent recovery for canonical operations | Policy documented; product enforcement missing; waits for A2/A3/A4a | **REMEDIATION QUEUED** |
-| **A6** | Default-deny resolver/authorizer | Trusted server lookup, deny before callback/network/credential, secret-free plan | Policy documented; product enforcement missing; waits for A4a/A5 unless pure non-runtime contract | **REMEDIATION QUEUED** |
-| **A7** | Qdrant transport/egress security | Concrete SSRF/redirect/DNS/proxy/timeout/body-cap decisions and safe transport before runtime use | Policy categories documented; concrete decisions and runtime hardening missing | **REMEDIATION QUEUED** |
-| **A8** | Closure audit/integration | Independent audit of integrated Wave A diffs and full verification matrix | Not dispatchable until A1/A2/A3/A5/A6/A7 are accepted | **FINAL GATE** |
-| **R1/R2/R2-3** | Audit finding disposition | No false readiness and all blockers mapped to owners | Disposition documented; blockers remain unresolved and drive remediation order | **TRACKED** |
+## Readiness disposition
 
-## Exact verification command ledger (copy-pasteable)
+| ID | Scope | Baseline outcome | Status |
+|---|---|---|---|
+| **A0** | Correct the stale readiness record against a real SHA | Reframed as post-hoc verification over `ce02a3b`; invalid SHA/worktree claims removed | **PENDING INDEPENDENT ACCEPTANCE** |
+| **A1** | Contained, bounded, no-follow repository I/O | Implemented by `1577b11`; symlink/escape assertions pass | **PASS (Linux baseline)** |
+| **A2** | Atomic mutation, cross-process locking, fenced reread, recovery | Implemented by `1577b11`; stale-backup and two-process revision-conflict assertions pass | **PASS (Linux baseline)** |
+| **A3** | Credential backend/manager durability and isolated test roots | Implemented by `aaeef98`; credential suite and full domain suite pass without using real `~/.craft-agent` credentials | **PASS (Linux baseline)** |
+| **A4a** | Historical decision-only predecessor worker | Contract files already exist and pass; dispatch would repeat obsolete sequencing and risk overlap | **MOOT / NOT DISPATCHABLE** |
+| **A5** | Durable, secret-free config/credential saga and crash recovery | `122f176` coordinates credentials with in-process compensation, but no durable journal or `startupRecovery` exists | **OPEN** |
+| **A6** | Pure default-deny managed-ref resolver | Implemented by `2c961d1`; membership, write, global, and deny-before-callback tests pass | **PASS (scoped)** |
+| **A7** | Implemented Qdrant guard set | Implemented by `2c961d1`; URL, userinfo, redirect, ambient-credential, timeout, and request-body protections are covered | **PASS (scoped)** |
+| **A8** | Independent integrated closure review | This re-baseline defines the review input; acceptance still required after A5/platform closure | **PENDING INDEPENDENT ACCEPTANCE** |
+| **Platform matrix** | Linux/macOS/Windows FS and race behavior | Linux recorded; macOS and Windows not run | **EVIDENCE GAP** |
 
-### Required command families and intended outcomes
+## Commit-to-evidence map
+
+| Commit | Landed scope | Primary evidence |
+|---|---|---|
+| `1577b11` | A1/A2 repository hardening | [repository.ts](../packages/shared/src/project-memory/connections/repository.ts), [repository.test.ts](../packages/shared/src/project-memory/connections/__tests__/repository.test.ts) |
+| `aaeef98` | A3 credential hardening and isolated-root tests | [secure-storage.ts](../packages/shared/src/credentials/backends/secure-storage.ts), [manager.ts](../packages/shared/src/credentials/manager.ts), [memory-credentials.test.ts](../packages/shared/src/credentials/__tests__/memory-credentials.test.ts) |
+| `2c961d1` | A6 resolver and A7 Qdrant guards | [resolver.ts](../packages/shared/src/project-memory/connections/resolver.ts), [resolver.test.ts](../packages/shared/src/project-memory/connections/__tests__/resolver.test.ts), [qdrant.ts](../packages/shared/src/project-memory/qdrant.ts), [qdrant.test.ts](../packages/shared/src/project-memory/qdrant.test.ts) |
+| `122f176` | Credential-coordinating service, but not durable A5 recovery | [service.ts](../packages/shared/src/project-memory/connections/service.ts), [service.test.ts](../packages/shared/src/project-memory/connections/__tests__/service.test.ts) |
+
+All four commits are ancestors of the baseline SHA.
+
+## Exact verification ledger
+
+Run from the repository root at `ce02a3b359fe35db328fcf3e64a34a473bec76a5`.
+
+### Six-suite connection baseline
 
 ```bash
 bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts
-bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts
-bun test packages/server/src/__tests__/smoke.test.ts
-bun test packages/session-tools-core/src/**/*.test.ts
-bun test packages/server-core/src/**/*.test.ts
-bun run typecheck:all
-bun run validate:ci
-bun run lint
 ```
 
-### Command outcomes (known)
+**Recorded Friday, July 24, 2026:** `96 pass / 0 fail / 288 expect() calls`.
 
-- Targeted project-memory connection command above: **95 tests** | **92 pass** | **3 fail** | **0 error**. Named failures: symlink containment, stale-backup mutation under EACCES, and two-process same-revision acknowledgement.
-- `bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts`: **NOT RUN in this task**
-- `bun test packages/server/src/__tests__/smoke.test.ts`: **NOT RUN in this task**
-- `bun test packages/session-tools-core/src/**/*.test.ts`: **NOT RUN in this task**
-- `bun test packages/server-core/src/**/*.test.ts`: **NOT RUN in this task**
-- `bun run typecheck:all`: **NOT RUN in this task**
-- `bun run validate:ci`: **NOT RUN in this task**
-- `bun run lint`: **NOT RUN in this task**
-- **Prior provided audit aggregate:** **98 pass / 8 fail / 4 error** across **106 tests**, with additional setup/load failures; command is **`historical auditor run, exact command unavailable; not acceptable as future gate`**.
+This command includes the real, unskipped symlink-containment, stale-backup/EACCES, and two-process same-revision assertions. Their previous `92 pass / 3 fail` snapshot is historical and superseded.
 
-### Credential/backend/session-tools/server-core scanner
-
-- There is no dedicated project scanner script/command currently defined in this repo.
-- Concrete manual fallback for reproducible secret/keyword scanning (when scanner is unavailable):
-
-Run from the repository root:
+### Full project-memory and credentials domain
 
 ```bash
-grep -RInE --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build \
-  "AKIA[0-9A-Z]{16}|[Aa][Pp][Ii][_\-]?[Kk][Ee][Yy]|[Bb][Ee][Aa][Rr][Ee][Rr][[:space:]][A-Za-z0-9._-]+|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]" .
+bun test packages/shared/src/project-memory/ packages/shared/src/credentials/
 ```
 
-This fallback does not replace a scanner gate; it is a temporary manual audit mechanism only.
+**Recorded Friday, July 24, 2026:** `140 pass / 0 fail / 404 expect() calls`.
 
-## Cross-platform verification requirement (mandatory)
+This aggregate covers the credential, resolver, service, repository, validation, and Qdrant tests used by this re-baseline. Credential tests use in-memory or injected temporary roots and include a guard against the real default credential path.
 
-Wave A matrix must include explicit Linux/macOS/Windows outcomes for FS/race cases or declare fail-closed supported behavior.
+### Shared typecheck
 
-- **Current status:** **NOT RUN on all OS variants yet** in this doc correction pass; therefore this requirement remains a gate.
+```bash
+bun run typecheck:shared
+```
 
-## Status notes for each area
+**Recorded Friday, July 24, 2026:** PASS on Linux x86_64 with Bun `1.3.8`.
 
-- **A1/A2/A3/A5/A6/A7 must not be marked PASS until their remediation implementation and tests are independently accepted.**
-- Downstream executor prompts must use predecessor-based dispatch semantics: a remediation worker may dispatch only when its documented predecessor gates are accepted. A remediation area remains non-PASS until that worker’s own implementation, tests, and independent review are accepted.
-- Repo-relative links are now preferred and used throughout this artifact set.
+### Baseline/artifact ancestry checks
+
+Run on the exact docs artifact commit supplied to the independent auditor:
+
+```bash
+git rev-parse HEAD
+git branch --show-current
+git merge-base --is-ancestor ce02a3b359fe35db328fcf3e64a34a473bec76a5 HEAD
+for commit in 1577b11 aaeef98 2c961d1 122f176; do
+  git merge-base --is-ancestor "$commit" ce02a3b359fe35db328fcf3e64a34a473bec76a5
+done
+git diff --name-only ce02a3b359fe35db328fcf3e64a34a473bec76a5...HEAD
+```
+
+Every ancestry check must exit zero. The final diff must list only the three A0 documentation files. The independent report records the exact artifact commit SHA; the artifact cannot embed its own Git object ID without becoming self-referential.
+
+## Cross-platform evidence matrix
+
+| Platform | Recorded outcome for this baseline | Release interpretation |
+|---|---|---|
+| **Linux** | Both commands above pass with the exact recorded counts | Evidence available for this host only |
+| **macOS** | **NOT RUN / no evidence recorded** | Do not infer FS, permission, symlink, or race parity |
+| **Windows** | **NOT RUN / no evidence recorded** | Do not infer FS, permission, symlink, or race parity |
+
+The implementation is designed to fail closed, but design intent is not cross-platform evidence. macOS and Windows results, or an explicit supported-platform decision, remain part of closure.
+
+## Scope limits
+
+- A6 PASS is for the pure managed-reference resolver contract and tests, not unrelated handler paths.
+- A7 PASS is for the implemented guard set. This matrix does not claim untested DNS rebinding, private-address, proxy, response-size, or OS-network behavior.
+- A5 is the only confirmed open implementation gap in this artifact set.
+- No A4a or other predecessor worker may be launched from the obsolete historical sequence.

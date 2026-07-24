@@ -1,101 +1,82 @@
-# R2-3 Appendix — Memory Discovery Readiness and Risk Register
+# R2-3 Appendix — Post-Hoc Memory Discovery Readiness
 
-**Date (authoritative):** Wednesday, July 15, 2026 at 05:25 PM GMT+3
-**Purpose:** authoritative appendix for A0 correction, containing finding disposition and policy freezes for future executor prompts.
+**Date (authoritative):** Friday, July 24, 2026 (GMT+3)
+**Implementation baseline SHA:** `ce02a3b359fe35db328fcf3e64a34a473bec76a5` on `main`
+**Artifact branch:** `docs/a0-posthoc-rebaseline` (the reviewed docs commit is a docs-only descendant of the implementation baseline)
+**Purpose:** detailed finding disposition and preserved closure contracts for the A0 post-hoc re-baseline
 
-## Decision ownership and non-dispatch scope
+## 1. Historical sequence correction
 
-- Byte cap/version/identity/limit policy questions: **owner `A4a`**.
-- Qdrant transport SSRF/egress policy questions: **owner `A7`**.
-- Business-policy exceptions (for example, alias migration exceptions): **owner `orchestrator/user decision`**.
-- Unresolved items stay **BLOCKING OPEN QUESTION** until their owner marks them accepted.
+The prior appendix treated A0 as a prerequisite to dispatch A4a and then A1–A7. Repository history has overtaken that sequence: A1/A2/A3/A6/A7-class implementation landed in `1577b11`, `aaeef98`, and `2c961d1`, followed by credential-coordinating service work in `122f176`. All are ancestors of this baseline.
 
-## 1) P0/P1 finding disposition (detailed)
+A0 is therefore re-scoped as post-hoc verification and A8-style closure. **A4a is moot and not dispatchable.** Invalid historical SHA and topology anchors have been removed.
 
-### 1.1 Credential fault-test isolation / real `~/.craft-agent` credential safety
+## 2. Corrected P0/P1 finding disposition
 
-- **Disposition:** **BLOCKED**
-- **Current evidence:** hooks are not contractually required in docs/tests; no explicit “do not run on real path” gate in tool/process docs.
-- **Required next:** add explicit test harness constraints in Wave A docs and enforce in test scaffolding.
+### 2.1 Credential fault-test isolation
 
-### 1.2 Credential backend durability + manager contract
+- **Disposition:** **PASS (Linux baseline)**
+- **Evidence:** `aaeef98`; [memory-credentials.test.ts](../packages/shared/src/credentials/__tests__/memory-credentials.test.ts) uses in-memory or `mkdtemp` roots, asserts the path differs from `~/.craft-agent/credentials.enc`, and verifies test-mode construction refuses an uninjected default path.
+- **Preserved rule:** destructive credential tests must use injected roots and must never touch the real default store.
 
-- **Disposition:** **FAIL**
-- **Current evidence:** durability/recovery tests report boundary failures (repo test output in corrected matrix).
-- **Required next:** prove storage error handling is fail-closed and idempotent recovery paths work across interrupted/locked writes.
+### 2.2 Credential backend durability and manager contract
 
-### 1.3 Credential/config saga protocol
+- **Disposition:** **PASS (Linux baseline)**
+- **Evidence:** `aaeef98`; typed fail-closed storage errors, canonical connection-scoped credential identities, and hardened backend operations in [secure-storage.ts](../packages/shared/src/credentials/backends/secure-storage.ts), [manager.ts](../packages/shared/src/credentials/manager.ts), and their tests.
 
-- **Disposition:** **BLOCKED**
-- **Owner:** **A5** for implementation; A0 documents vocabulary only.
-- **Current evidence:** policy is documented in ADR §D with canonical operation + marker vocabulary, but no implementation enforcement in runtime/tests yet.
-- **Required next:** implement/enforce saga intent/journal/rollback behavior for all mutation operations in A5 after A2/A3/A4a gates pass.
+### 2.3 Credential/config saga protocol
 
-### 1.4 Repository FS containment / bounded I/O
+- **Disposition:** **OPEN — confirmed implementation gap**
+- **Owner:** A5 closure work
+- **Evidence:** `122f176` adds in-process credential coordination and compensation in [service.ts](../packages/shared/src/project-memory/connections/service.ts), but repository search finds no durable saga journal, `stageSecret`, or `startupRecovery` implementation.
+- **Required closure:** durable secret-free intent records, idempotent crash replay, reconciliation, and fail-closed startup recovery.
 
-- **Disposition:** **FAIL**
-- **Current evidence:** symlink containment assertions did not fail as expected and path escape behavior remains a blocker.
-- **Required next:** harden path resolution, canonical checks, and bounded I/O windows.
+### 2.4 Repository FS containment and bounded I/O
 
-### 1.5 Repository cross-process locking / fenced reread / transaction recovery
+- **Disposition:** **PASS (Linux baseline)**
+- **Evidence:** `1577b11`; [repository.ts](../packages/shared/src/project-memory/connections/repository.ts) performs no-follow path checks and exclusive bounded writes. The real symlink-containment assertions in [repository.test.ts](../packages/shared/src/project-memory/connections/__tests__/repository.test.ts) pass.
 
-- **Disposition:** **FAIL**
-- **Current evidence:** two real processes both acknowledged create at same root revision in tests.
-- **Required next:** enforce single-writer lock + fenced reread + monotonic root revision recovery.
+### 2.5 Cross-process locking, fenced reread, and recovery
 
-### 1.6 Migration/version policy (v1→v2)
+- **Disposition:** **PASS (Linux baseline)**
+- **Evidence:** `1577b11`; exclusive `.lock` creation, owner token, timeout, fenced reread, revision checks, and recovery logic are covered by passing stale-backup/EACCES and two-process race assertions.
 
-- **Disposition:** **BLOCKING OPEN QUESTION**
-- **Owner:** **A4a**
-- **Current evidence:** explicit discriminators for `foundation-v1`, `pre-repair-v1`, and `current-v1` are defined as policy but not yet enforced in implementation.
-- **Required next:** decide migration constants, idempotent pre-validation detector, rollback/backup policy, and corrupted/future-version fail-closed behavior.
+### 2.6 Contract, identity, limit, and version policy
 
-### 1.7 Default-deny resolver / authorizer
+- **Disposition:** **PASS for current contract tests; forward migration policy preserved**
+- **Evidence:** current [limits.ts](../packages/shared/src/project-memory/connections/limits.ts), [types.ts](../packages/shared/src/project-memory/connections/types.ts), [identity.ts](../packages/shared/src/project-memory/connections/identity.ts), [validation.ts](../packages/shared/src/project-memory/connections/validation.ts), and their tests are present and pass in the domain suite.
+- **Boundary:** no A4a worker is needed. A future schema migration must explicitly discriminate `foundation-v1`, `pre-repair-v1`, and `current-v1`, detect before writing, reject ambiguous/corrupt/future versions, and provide idempotent rollback/recovery. This is forward policy, not a current dispatch blocker.
 
-- **Disposition:** **BLOCKED**
-- **Current evidence:** ADR documents the resolver contract, but centralized deny-first behavior is still missing in product enforcement.
-- **Required next:** after A4a/A5 predecessor gates pass, dispatch the A6 remediation worker to enforce policy in resolver + authorizer handlers and add contract tests. Runtime use/downstream progression remains blocked until A6 implementation/tests are independently accepted.
+### 2.7 Default-deny resolver/authorizer
 
-### 1.8 Qdrant transport / SSRF / egress policy
+- **Disposition:** **PASS for the pure resolver scope**
+- **Evidence:** `2c961d1`; [resolver.ts](../packages/shared/src/project-memory/connections/resolver.ts) implements connection/space existence, enabled state, membership/binding, global-write, writability, secret-free output, and deny-before-credential-callback behavior; [resolver.test.ts](../packages/shared/src/project-memory/connections/__tests__/resolver.test.ts) passes.
+- **Boundary:** this disposition does not claim coverage for unrelated handlers or future resolver consumers.
 
-- **Disposition:** **BLOCKED**
-- **Owner:** **A7**
-- **Current evidence:** transport policy categories are documented, but concrete allow/deny decisions and runtime enforcement are not complete for redirects, DNS, IPv4/IPv6, proxy, URLs with credentials, or timeout/body caps.
-- **Required next:** define/implement deny rules before using arbitrary stored URLs at runtime.
+### 2.8 Qdrant transport guards
 
-### 1.9 Identity, limits, serialized bytes, safe integers, global collision
+- **Disposition:** **PASS for the implemented/tested guard scope**
+- **Evidence:** `2c961d1`; [qdrant.ts](../packages/shared/src/project-memory/qdrant.ts) and [qdrant.test.ts](../packages/shared/src/project-memory/qdrant.test.ts) cover canonical URLs, embedded-credential rejection, redirect rejection, omitted ambient credentials, timeout/cancellation, request-body limits, and encoded collection paths.
+- **Boundary:** no DNS rebinding, private-address, proxy, response-size, cross-platform, or other untested egress claim is made. Expanded support requires a new scoped security decision and tests; it is not a reason to preserve the stale blanket A7 BLOCKED disposition.
 
-- **Disposition:** **BLOCKING OPEN QUESTION**
-- **Owner:** **A4a**
-- **Current evidence:** identity hardening (duplicate/alias policy, serialized-byte invariants, safe-integer overflow, global collision guarantees) is documented but not yet enforced in code.
-- **Required next:** codify and verify these constraints as mandatory before A1.
+### 2.9 Worktree topology and worker collision policy
 
-### 1.10 Worktree topology / worker collision policy
+- **Disposition:** **CORRECTED**
+- **Evidence anchor:** implementation baseline `ce02a3b359fe35db328fcf3e64a34a473bec76a5` on `main`; `docs/a0-posthoc-rebaseline` is a real docs-only descendant, and the independent report must record its exact artifact commit SHA.
+- **Rule:** every future worker records its actual base SHA, branch/worktree, expected files, verification commands/results, and ownership. Overlapping runtime work integrates serially.
 
-- **Disposition:** **NOT READY**
-- **Current evidence:** contract now added in ADR; file ownership still needs follow-up re-audit before worker dispatch.
-- **Required next:** enforce base SHA + expected file set + serial integration for each worker.
+### 2.10 Verification and platform matrix
 
-### 1.11 Verification matrix / cross-platform matrix
+- **Disposition:** **Linux PASS; macOS/Windows EVIDENCE GAP**
+- **Evidence:** exact commands and counts are in [A0-readiness-matrix.md](A0-readiness-matrix.md).
+- **Boundary:** fail-closed design intent is not a substitute for OS evidence. No macOS/Windows FS, permission, symlink, or race parity is claimed.
 
-- **Disposition:** **NOT COMPLETE**
-- **Current evidence:** matrix had false PASS claims and incomplete OS-specific evidence.
-- **Required next:** maintain a live matrix with command families and Linux/macOS/Windows outcomes.
+### 2.11 A4a and A8 status
 
-### 1.12 A4a contract gate status
+- **A4a:** **MOOT / NOT DISPATCHABLE**. Its contract files already exist and pass; dispatch would revive an obsolete predecessor sequence and risk file overlap.
+- **A8-style closure:** **PENDING**. Independently review this re-baseline, then review the A5 implementation and platform-evidence decision before any release or Wave B/C claim.
 
-- **Disposition:** **BLOCKED**
-- **Current evidence:** A4a scope is now documented, but re-audit of this decision-only gate is not complete.
-- **Required next:** after A0 re-audit, run A4a as pure-contract worker from the audited tip, then re-audit before A1 dispatch.
-
-### 1.13 A8 closure audit status
-
-- **Disposition:** **FINAL GATE**
-- **Owner:** integration/audit worker after A1/A2/A3/A5/A6/A7 are accepted
-- **Current evidence:** no integrated remediation diffs exist yet.
-- **Required next:** independently audit the integrated Wave A branch and rerun the full verification matrix before merge/release or Wave B/C.
-
-## 2) Exact operation list required for A5 saga
+## 3. A5 saga closure contract
 
 ### Canonical operation names
 
@@ -113,62 +94,63 @@
 
 `prepare` → `stageSecret` → `commitConfig` → `commitCredential` → `reconcile` → `complete` → `rollback`
 
-### Required per-operation sequence
+### Required behavior
 
-For all mutation operations (`createConnection`, `updateConnectionConfig`, `deleteConnection`, `setApiKey`, `replaceApiKey`, `clearApiKey`, `setCredentialMode`, `migrateLegacyUppercaseCredentials`):
-`prepare` → `stageSecret` → `commitConfig` → `commitCredential` → `reconcile` → `complete`; rollback uses `rollback`.
+- Persist a secret-free intent before each state mutation.
+- Journal operation ID, intent, target kind/id, preconditions, idempotency key, actor, attempt, and status—never secret material.
+- Make replay and rollback idempotent.
+- Complete recovery or fail closed before accepting the next outer-memory mutation.
+- Cover crash points between config and credential commits in tests.
+- Preserve typed errors without leaking credentials into logs or journal entries.
 
-For `startupRecovery`:
-`prepare` → `reconcile` → `complete` with `rollback` on failure.
+## 4. Default-deny resolver freeze list
 
-## 3) Default-deny resolver freeze list
+The landed resolver contract must not regress:
 
-- trusted server/session/workspace/project lookup first
-- disabled/deleted/missing entities denied
-- missing/deleted spaces denied
-- read-membership required for read mode
-- write-membership + writable required for write mode
-- global read-only (never writable)
-- workspace/project/custom binding explicit and non-fallback
-- refs bounds, dedupe, explicit-mode semantics
-- no callbacks/network/credential access on deny
-- secret-free output shape
-- no fallback from managed refs to raw legacy store
-- **Product enforcement status:** policy defined; A6 remediation dispatch is allowed only after A4a/A5 predecessor gates pass. Runtime use/downstream progression remains BLOCKED until handlers/tests enforce it and independent A6 review accepts it.
+- trusted server/session workspace and project context only;
+- missing or disabled connections denied;
+- missing spaces and non-members denied;
+- read and write membership kept separate;
+- write requires writable state;
+- global memory is read-only;
+- workspace/project/custom bindings are explicit and non-fallback;
+- denied refs cause no callback, credential lookup, or network access;
+- resolver output is identity-only with machine-readable denial reasons;
+- managed refs never silently fall back to an unmanaged legacy raw store.
 
-## 4) Verification outcomes snapshot (authoritative)
-
-- `bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts`: `92 pass` / `3 fail` / `0 error` (95 tests). Named failures: symlink containment, stale-backup mutation under EACCES, and two-process same-revision acknowledgement.
-- `bun test packages/shared/src/credentials/__tests__/memory-credentials.test.ts`: **NOT RUN in this doc correction pass**.
-- `bun test packages/server/src/__tests__/smoke.test.ts`: **NOT RUN in this doc correction pass**.
-- `bun test packages/session-tools-core/src/**/*.test.ts`: **NOT RUN in this doc correction pass**.
-- `bun test packages/server-core/src/**/*.test.ts`: **NOT RUN in this doc correction pass**.
-- `historical auditor run, exact command unavailable; not acceptable as future gate`: `98 pass` / `8 fail` / `4 error` across `106 tests`, with additional failures from missing dependencies and setup mismatch.
-- **No scanner command exists as a dedicated script in this repository.** Use fallback check below for manual reproducibility:
-
-Run from the repository root:
+## 5. Verification snapshot
 
 ```bash
-grep -RInE --ignore-case --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build \
-  "AKIA[0-9A-Z]{16}|api[_-]?key|bearer[[:space:]][A-Za-z0-9._-]+|secret|password" .
+bun test packages/shared/src/project-memory/connections/__tests__/repository.test.ts packages/shared/src/project-memory/connections/__tests__/validation.test.ts packages/shared/src/project-memory/connections/__tests__/environment.test.ts packages/shared/src/project-memory/connections/__tests__/session-refs.test.ts packages/shared/src/project-memory/connections/__tests__/dto.test.ts packages/shared/src/project-memory/connections/__tests__/boundary.test.ts
 ```
 
-## 5) Mandatory vs adjacent risk register
+Recorded Friday, July 24, 2026: **96 pass / 0 fail / 288 expect() calls**.
 
-### Mandatory Wave A blockers (must close before merge/release or Wave B/C)
+```bash
+bun test packages/shared/src/project-memory/ packages/shared/src/credentials/
+```
 
-1. FS containment and bounded I/O (A1 remediation)
-2. Cross-process concurrency recovery (A2 remediation)
-3. Fault-test isolation + credential-safety harness (A3 remediation)
-4. Saga + recovery journal for all mutation operations (A5 remediation)
-5. Resolver default-deny authorizer and binding policy (A6 remediation)
-6. Migration discriminators and rollback semantics (A4a decision gate, later migration owner)
-7. Qdrant transport hardening (A7 remediation)
+Recorded Friday, July 24, 2026: **140 pass / 0 fail / 404 expect() calls**.
 
-### Adjacent repo risks (not part of core Wave A, defer with explicit gate)
+The former `92 pass / 3 fail` result and its three named failures are superseded; the assertions remain real and now pass because the landed code was hardened.
 
-- broader session-tool/server-core regressions outside project-memory
-- general linting and secret-scan baseline in unrelated areas
-- optional-platform behavior not in direct Wave A scope
+## 6. Remaining risk and ownership
 
-Deferred risks must be linked to future tasks with explicit acceptance conditions before unblocking adjacent areas.
+### Confirmed open implementation work
+
+1. **A5 durable saga journal and startup recovery** — owner: the serial A5 implementation/review chain.
+
+### Evidence/acceptance work
+
+1. Independent acceptance of the three re-baselined A0 documents.
+2. macOS and Windows FS/race verification, or an explicit supported-platform decision.
+3. A8-style independent review after A5 and platform closure.
+
+### No-overlap rules
+
+- `packages/shared/src/project-memory/connections/repository.ts` remains single-owner.
+- Do not dispatch a parallel A4a worker over `limits.ts`, `types.ts`, `identity.ts`, or `validation.ts`.
+- While A5 is active, `packages/shared/src/credentials/**` and credential-coordination files belong only to the A5 chain.
+- Serial review/integration is mandatory whenever expected file sets overlap.
+
+Wave B/C and release-readiness claims remain blocked until the evidence/acceptance work and A5 closure complete.
