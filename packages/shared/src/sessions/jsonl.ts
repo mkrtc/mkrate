@@ -39,12 +39,29 @@ export interface SessionJsonlFsAdapter {
   copyFile?(source: string, destination: string): void;
 }
 
+export interface SessionJsonlSyncFsAdapter {
+  open(path: string, flags: 'r+'): number;
+  sync(fd: number): void;
+  close(fd: number): void;
+}
+
+const defaultSessionJsonlSyncFs: SessionJsonlSyncFsAdapter = {
+  open: (path, flags) => openSync(path, flags),
+  sync: (fd) => fsyncSync(fd),
+  close: (fd) => closeSync(fd),
+};
+
+/** Flush a written temp file through a write-capable handle on every platform. */
+export function syncSessionJsonlFile(path: string, fs: SessionJsonlSyncFsAdapter = defaultSessionJsonlSyncFs): void {
+  // Windows FlushFileBuffers requires GENERIC_WRITE. Opening with `r` works on
+  // POSIX but produces a read-only Windows handle that cannot be flushed.
+  const fd = fs.open(path, 'r+');
+  try { fs.sync(fd); } finally { fs.close(fd); }
+}
+
 const defaultSessionJsonlFs: SessionJsonlFsAdapter = {
   writeFile: (path, data) => writeFileSync(path, data),
-  syncFile: (path) => {
-    const fd = openSync(path, 'r');
-    try { fsyncSync(fd); } finally { closeSync(fd); }
-  },
+  syncFile: syncSessionJsonlFile,
   rename: (oldPath, newPath) => renameSync(oldPath, newPath),
   unlink: (path) => unlinkSync(path),
   copyFile: (source, destination) => copyFileSync(source, destination),

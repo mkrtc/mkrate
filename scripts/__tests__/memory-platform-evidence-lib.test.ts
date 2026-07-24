@@ -5,13 +5,11 @@ import { isAbsolute, join } from 'node:path';
 import {
   MAX_JUNIT_FAILURE_MESSAGE_CHARS,
   MAX_JUNIT_FAILURE_TYPE_CHARS,
-  MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX,
   REQUIRED_COMMAND_IDS,
   SERVER_REQUIRED_CASES,
   assertArtifactSanitized,
   caseManifestHash,
   createPhysicalTempEnvironment,
-  extractMemoryEvidenceDiagnostics,
   fingerprintProtectedStore,
   parseBunJUnit,
   sanitizeJUnitFailureDiagnostics,
@@ -39,18 +37,6 @@ const FAILING_JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
   <testsuite name="suite.ts" tests="1" assertions="1" failures="1" skipped="0">
     <testcase name="fails safely" classname="security" file="suite.ts" assertions="1">
       <failure type="AssertionError" message="failed at /known/root/file.ts > comparison">ARBITRARY_BODY_SECRET_SHOULD_NEVER_BE_CAPTURED</failure>
-    </testcase>
-  </testsuite>
-</testsuites>`;
-
-const FAILING_BODY_JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="1" assertions="0" failures="1" skipped="0" time="0.1">
-  <testsuite name="suite.ts" tests="1" assertions="0" failures="1" skipped="0">
-    <testcase name="fails in setup" classname="security" file="suite.ts" line="57" assertions="0">
-      <failure type="AssertionError">
-        setup failed at /known/root/file.ts
-        STACK_SECRET_SHOULD_NEVER_BE_CAPTURED at /private/stack.ts
-      </failure>
     </testcase>
   </testsuite>
 </testsuites>`;
@@ -110,7 +96,7 @@ describe('memory platform evidence library', () => {
     validateJUnitEvidence(report, ['security & durability > serializes two processes']);
   });
 
-  test('prefers a structured failure message attribute and never captures its body', () => {
+  test('parses only structured failure attributes and never captures failure bodies', () => {
     const report = parseBunJUnit(FAILING_JUNIT);
     expect(report.cases[0]).toMatchObject({
       status: 'failed',
@@ -118,36 +104,9 @@ describe('memory platform evidence library', () => {
         kind: 'failure',
         type: 'AssertionError',
         message: 'failed at /known/root/file.ts > comparison',
-        messageSource: 'attribute',
       },
     });
     expect(JSON.stringify(report)).not.toContain('ARBITRARY_BODY_SECRET_SHOULD_NEVER_BE_CAPTURED');
-  });
-
-  test('captures only a bounded first failure-body line and never retains the remaining stack', () => {
-    const report = parseBunJUnit(FAILING_BODY_JUNIT);
-    expect(report.cases[0]).toMatchObject({
-      status: 'failed',
-      file: 'suite.ts',
-      line: 57,
-      failure: {
-        kind: 'failure',
-        type: 'AssertionError',
-        message: 'setup failed at /known/root/file.ts',
-        messageSource: 'body-first-line',
-      },
-    });
-    expect(JSON.stringify(report)).not.toContain('STACK_SECRET_SHOULD_NEVER_BE_CAPTURED');
-
-    const sanitized = sanitizeJUnitFailureDiagnostics(
-      report,
-      [{ path: '/known/root', replacement: '<KNOWN_ROOT>' }],
-      [],
-    );
-    expect(sanitized.cases[0]!.failure).toMatchObject({
-      message: 'setup failed at <KNOWN_ROOT>/file.ts',
-      messageSource: 'body-first-line',
-    });
   });
 
   test('rejects skips, missing required cases, and duplicate exact names', () => {
@@ -171,39 +130,6 @@ describe('memory platform evidence library', () => {
       passingReport(SERVER_REQUIRED_CASES.slice(0, -1)),
       SERVER_REQUIRED_CASES,
     )).toThrow(/missing required exact case/);
-  });
-
-  test('extracts only bounded allowlisted boolean diagnostics from failed-command stderr', () => {
-    const valid = `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}${JSON.stringify({
-      code: 'watch.seed',
-      state: { headerRead: true, headerSelectionA: true, watcherReady: false },
-    })}`;
-    const another = `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}${JSON.stringify({
-      code: 'fresh.after',
-      state: { diskRead: true, diskSelectionB: false, singleLine: true },
-    })}`;
-    const stderr = [
-      'arbitrary stderr with sk-do-not-capture and /private/path',
-      valid,
-      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}{"code":"unknown","state":{"matched":true}}`,
-      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}{"code":"watch.wait","state":{"path":"/private/path"}}`,
-      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}{"code":"watch.wait","state":{"matched":true},"secret":"sk-do-not-capture"}`,
-      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}not-json`,
-      another,
-    ].join('\n');
-
-    expect(extractMemoryEvidenceDiagnostics(stderr)).toEqual([
-      {
-        code: 'watch.seed',
-        state: { headerRead: true, headerSelectionA: true, watcherReady: false },
-      },
-      {
-        code: 'fresh.after',
-        state: { diskRead: true, diskSelectionB: false, singleLine: true },
-      },
-    ]);
-    expect(JSON.stringify(extractMemoryEvidenceDiagnostics(stderr))).not.toContain('do-not-capture');
-    expect(extractMemoryEvidenceDiagnostics(Array.from({ length: 70 }, () => valid).join('\n'))).toHaveLength(64);
   });
 
   test('requires one passing structured record for every evidence command', () => {
@@ -301,7 +227,7 @@ describe('memory platform evidence library', () => {
         { classname: 'suite', name: 'bounded', fullName: 'suite > bounded', status: 'failed', failure: { kind: 'failure', type: longType, message: longMessage } },
         { classname: 'suite', name: 'shaped', fullName: 'suite > shaped', status: 'failed', failure: { kind: 'error', message: 'token=example-secret-value' } },
         { classname: 'suite', name: 'environment', fullName: 'suite > environment', status: 'failed', failure: { kind: 'failure', message: 'credential production-token-value' } },
-        { classname: 'suite', name: 'unknown-path', fullName: 'suite > unknown-path', file: 'C:\\private\\suite.test.ts', line: 42, status: 'failed', failure: { kind: 'failure', message: 'failed under C:\\private\\file.ts' } },
+        { classname: 'suite', name: 'unknown-path', fullName: 'suite > unknown-path', status: 'failed', failure: { kind: 'failure', message: 'failed under C:\\private\\file.ts' } },
         { classname: 'suite', name: 'unc-path', fullName: 'suite > unc-path', status: 'failed', failure: { kind: 'failure', message: 'failed under \\\\server\\share\\private\\file.ts' } },
         { classname: 'suite', name: 'extended-path', fullName: 'suite > extended-path', status: 'failed', failure: { kind: 'failure', message: 'failed under \\\\?\\C:\\private\\file.ts' } },
         { classname: 'suite', name: 'punctuated-posix', fullName: 'suite > punctuated-posix', status: 'failed', failure: { kind: 'failure', message: 'failed at (/private/root/file.ts)' } },
@@ -323,7 +249,6 @@ describe('memory platform evidence library', () => {
     expect(sanitized.cases[0]!.failure!.message).not.toContain(knownRoot);
     expect(sanitized.cases[1]!.failure).toEqual({ kind: 'error' });
     expect(sanitized.cases[2]!.failure).toEqual({ kind: 'failure' });
-    expect(sanitized.cases[3]).toMatchObject({ file: '<ABSOLUTE_PATH>', line: 42 });
     expect(sanitized.cases[3]!.failure!.message).toBe('failed under <ABSOLUTE_PATH>');
     expect(sanitized.cases[4]!.failure!.message).toBe('failed under <ABSOLUTE_PATH>');
     expect(sanitized.cases[5]!.failure!.message).toBe('failed under <ABSOLUTE_PATH>');

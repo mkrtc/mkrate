@@ -18,7 +18,6 @@ import {
   assertArtifactSanitized,
   caseManifestHash,
   createPhysicalTempEnvironment,
-  extractMemoryEvidenceDiagnostics,
   fingerprintProtectedStore,
   normalizeRelativePath,
   parseBunJUnit,
@@ -60,6 +59,7 @@ const SHARED_REQUIRED_CASES = [
   'secret hygiene > mid-saga: secret lives only in encrypted staging, never in the journal',
   'outer lease > concurrent operations are serialized (never overlap) under the lease',
   'outer lease > a space mutation cannot temporally overlap a credential saga (lease instrumentation)',
+  'session JSONL Memory selection persistence > opens temp files read-write before fsync for Windows FlushFileBuffers compatibility',
   ...CRASH_CASES.flatMap(({ name, barriers }) => barriers.flatMap(barrier =>
     (['before', 'after'] as const).map(phase => `${CRASH_SUITE} > ${name} — crash at ${barrier}:${phase} converges atomically`),
   )),
@@ -173,6 +173,8 @@ function listSourceFiles(repositoryRoot: string): string[] {
   const roots = [
     'packages/shared/src/project-memory',
     'packages/shared/src/credentials',
+    'packages/shared/src/sessions/jsonl.ts',
+    'packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts',
     'packages/server-core/src/handlers/rpc/projects-memory.test.ts',
     'packages/server-core/src/handlers/rpc/projects.ts',
     'packages/server-core/src/sessions/SessionManager.ts',
@@ -240,7 +242,12 @@ function commandPlan(platformCases: readonly string[]): CommandEvidence[] {
       id: 'shared-memory-tests',
       kind: 'test',
       cwd: '.',
-      command: ['bun', 'test', 'packages/shared/src/project-memory/', 'packages/shared/src/credentials/'],
+      command: [
+        'bun', 'test',
+        'packages/shared/src/project-memory/',
+        'packages/shared/src/credentials/',
+        'packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts',
+      ],
       status: 'not-run',
       exitCode: null,
       requiredCases: [...SHARED_REQUIRED_CASES, ...platformCases],
@@ -312,11 +319,8 @@ async function runRecordedCommand(
     child.exited,
   ]);
   void stdout;
+  void stderr;
   command.exitCode = exitCode;
-  if (exitCode !== 0) {
-    const diagnostics = extractMemoryEvidenceDiagnostics(stderr);
-    if (diagnostics.length > 0) command.diagnostics = diagnostics;
-  }
 
   if (command.kind === 'test') {
     if (!junitPath || !existsSync(junitPath)) {
@@ -411,26 +415,16 @@ function markdown(report: EvidenceReport): string {
     const counts = command.counts ? `; ${command.counts.tests} tests, ${command.counts.failures} failures, ${command.counts.skipped} skips` : '';
     lines.push(`- **${command.status}:** \`${command.id}\` — exit ${command.exitCode ?? 'not-run'}${counts}`);
   }
-  const diagnostics = report.commands.flatMap(command =>
-    (command.diagnostics ?? []).map(diagnostic => ({ commandId: command.id, diagnostic })),
-  );
-  if (diagnostics.length > 0) {
-    lines.push('', '## Allowlisted failure diagnostics', '');
-    for (const { commandId, diagnostic } of diagnostics) {
-      lines.push(`- \`${commandId}\`: \`${diagnostic.code}\` ${JSON.stringify(diagnostic.state)}`);
-    }
-  }
   const failedCases = report.commands.flatMap(command =>
     (command.cases ?? []).filter(testCase => testCase.status === 'failed').map(testCase => ({ commandId: command.id, testCase })),
   );
   if (failedCases.length > 0) {
     lines.push('', '## Failed test cases', '');
     for (const { commandId, testCase } of failedCases) {
-      const location = testCase.file ? `; location=${JSON.stringify(`${testCase.file}${testCase.line ? `:${testCase.line}` : ''}`)}` : '';
       const type = testCase.failure?.type ? `; type=${JSON.stringify(testCase.failure.type)}` : '';
       const message = testCase.failure?.message ? `; message=${JSON.stringify(testCase.failure.message)}` : '';
       const truncation = testCase.failure?.typeTruncated || testCase.failure?.messageTruncated ? '; truncated=true' : '';
-      lines.push(`- \`${commandId}\`: \`${testCase.fullName}\`${location}${type}${message}${truncation}`);
+      lines.push(`- \`${commandId}\`: \`${testCase.fullName}\`${type}${message}${truncation}`);
     }
   }
   lines.push('', '## Platform capability cases', '');
