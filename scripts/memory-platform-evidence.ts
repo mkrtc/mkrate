@@ -59,12 +59,15 @@ const SHARED_REQUIRED_CASES = [
   'secret hygiene > mid-saga: secret lives only in encrypted staging, never in the journal',
   'outer lease > concurrent operations are serialized (never overlap) under the lease',
   'outer lease > a space mutation cannot temporally overlap a credential saga (lease instrumentation)',
-  'session JSONL Memory selection persistence > opens temp files read-write before fsync for Windows FlushFileBuffers compatibility',
   ...CRASH_CASES.flatMap(({ name, barriers }) => barriers.flatMap(barrier =>
     (['before', 'after'] as const).map(phase => `${CRASH_SUITE} > ${name} — crash at ${barrier}:${phase} converges atomically`),
   )),
   `${MODE_CRASH_SUITE} > crash at config:before converges the mode and never touches the key`,
   `${MODE_CRASH_SUITE} > crash at config:after converges the mode and never touches the key`,
+] as const;
+
+const SESSION_JSONL_REQUIRED_CASES = [
+  'session JSONL Memory selection persistence > opens temp files read-write before fsync for Windows FlushFileBuffers compatibility',
 ] as const;
 
 const PLATFORM_REQUIRED_CASES: Partial<Record<NodeJS.Platform, readonly string[]>> = {
@@ -246,11 +249,19 @@ function commandPlan(platformCases: readonly string[]): CommandEvidence[] {
         'bun', 'test',
         'packages/shared/src/project-memory/',
         'packages/shared/src/credentials/',
-        'packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts',
       ],
       status: 'not-run',
       exitCode: null,
       requiredCases: [...SHARED_REQUIRED_CASES, ...platformCases],
+    },
+    {
+      id: 'session-jsonl-tests',
+      kind: 'test',
+      cwd: '.',
+      command: ['bun', 'test', 'packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts'],
+      status: 'not-run',
+      exitCode: null,
+      requiredCases: [...SESSION_JSONL_REQUIRED_CASES],
     },
     {
       id: 'server-memory-tests',

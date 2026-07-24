@@ -79,8 +79,8 @@ A platform artifact is acceptable only when all of the following are true:
 - `workingTreeClean`, `workingTreeStable`, and `protectedStore.unchanged` are all `true`;
 - every source-manifest path is tracked in the artifact's exact `HEAD`;
 - Bun is exactly `1.3.10`;
-- all five recorded commands passed with exit code zero;
-- shared and server test failures and skips are both zero;
+- all six recorded commands passed with exit code zero;
+- shared, session JSONL, and server test failures and skips are all zero;
 - every platform capability is `passed`;
 - every required exact case appears once;
 - commit SHA is the reviewed candidate SHA;

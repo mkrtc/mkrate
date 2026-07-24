@@ -13,6 +13,7 @@ export const SERVER_REQUIRED_CASES = [
 
 export const REQUIRED_COMMAND_IDS = [
   'shared-memory-tests',
+  'session-jsonl-tests',
   'server-memory-tests',
   'core-typecheck',
   'shared-typecheck',
