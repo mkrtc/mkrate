@@ -91,6 +91,21 @@ jobs:
           MEMORY_EVIDENCE_OUTPUT_DIR: ${{ runner.temp }}/memory-platform-evidence
         run: bun run memory:evidence
 
+      # Temporary diagnosis for the sole Windows-only session JSONL test failure.
+      # Remove this step once the normal reporter identifies the exact assertion.
+      - name: Diagnose Windows session JSONL failure
+        if: failure() && matrix.os == 'windows-latest'
+        continue-on-error: true
+        env:
+          CI: "true"
+          NODE_ENV: test
+          CRAFT_CONFIG_DIR: ${{ runner.temp }}/memory-platform-diag-config
+          NO_COLOR: "1"
+          FORCE_COLOR: "0"
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:CRAFT_CONFIG_DIR | Out-Null
+          bun test packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts
+
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
