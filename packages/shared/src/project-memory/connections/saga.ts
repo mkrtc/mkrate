@@ -551,10 +551,14 @@ export class MemorySagaCoordinator {
       await this.finalize(entry);
     } catch (err) {
       if (err instanceof SagaAbortError || err instanceof SagaBlockedError) throw err;
-      if (committed) {
-        // Past the commit point: the operation's config is durably committed.
-        // Leave the journal at the in-flight `:doing` marker so recovery finishes
-        // the remaining (credential) work; surface the error to the caller.
+      if (committed || plan.recoverForward) {
+        // Leave the journal at the in-flight `:doing` marker and surface the error:
+        // - `committed`: config is durably committed → recovery finishes the
+        //   remaining (credential) work.
+        // - `recoverForward` (drift repair): the durable intent must be completed
+        //   forward on retry/recovery, NOT rolled back to the inconsistent pre-state.
+        //   A live failure therefore stays journaled/retryable rather than declaring
+        //   a rolled-back inconsistent "success".
         throw err;
       }
       // Pre-commit failure: the failing barrier's effect did not complete (its

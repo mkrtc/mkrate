@@ -249,13 +249,15 @@ describe('A5 saga: setCredentialMode mode-only crash recovery', () => {
 
       const conn = repo.getConnection(created.connectionId)!;
       // KEY INVARIANT: setCredentialMode is credential-untouching — the key is intact.
-      expect(await manager.getMemoryApiKey(created.connectionId)).toBe('sk-mode');
-      // DETERMINISTIC FORWARD REPAIR: because the pre-state is an invalid drift this
-      // op exists to repair, recovery must NEVER leave the drift — it rolls forward
-      // to the intended target. Result is a CONSISTENT state: mode 'stored-api-key'
-      // with the key present (mode ⇔ key-presence holds).
+      const key = await manager.getMemoryApiKey(created.connectionId);
+      expect(key).toBe('sk-mode');
+      // DETERMINISTIC FORWARD REPAIR: the pre-state is an invalid drift this op exists
+      // to repair, so recovery must NEVER leave the drift — it rolls forward to the
+      // intended target for BOTH the before and after crash windows.
       expect(conn.credentialMode).toBe('stored-api-key');
-      expect(conn.credentialMode === 'stored-api-key').toBe(true);
+      // MODE ⇔ KEY PRESENCE CONSISTENCY — asserted for both windows, no skip.
+      const hasKey = key !== null;
+      expect(conn.credentialMode === 'stored-api-key').toBe(hasKey);
     });
   }
 });
