@@ -1411,7 +1411,15 @@ function runtimeDisposalFailed(result: RuntimeDisposeResult | undefined): boolea
     || result?.errorCode === 'runtime_dispose_timed_out'
 }
 
+type ConfigWatcherFactory = (workspaceRootPath: string, callbacks: ConfigWatcherCallbacks) => ConfigWatcher
+
+export interface SessionManagerOptions {
+  /** Instance-local test seam; production always uses the default factory. */
+  configWatcherFactory?: ConfigWatcherFactory
+}
+
 export class SessionManager implements ISessionManager {
+  private readonly configWatcherFactory: ConfigWatcherFactory
   private sessions: Map<string, ManagedSession> = new Map()
   // Delta batching for performance - reduces IPC events from 50+/sec to ~20/sec
   private pendingDeltas: Map<string, PendingDelta> = new Map()
@@ -1495,6 +1503,11 @@ export class SessionManager implements ISessionManager {
     topicName: string
   }) => Promise<void>
   private workspaceReattachedHandler?: (workspaceId: string) => Promise<void>
+
+  constructor(options: SessionManagerOptions = {}) {
+    this.configWatcherFactory = options.configWatcherFactory
+      ?? ((workspaceRootPath, callbacks) => new ConfigWatcher(workspaceRootPath, callbacks))
+  }
 
   /**
    * Centralized setter for session processing state.
@@ -2334,7 +2347,7 @@ export class SessionManager implements ISessionManager {
       },
     }
 
-    const watcher = new ConfigWatcher(workspaceRootPath, callbacks)
+    const watcher = this.configWatcherFactory(workspaceRootPath, callbacks)
     try {
       watcher.start()
     } catch (error) {

@@ -413,10 +413,11 @@ function markdown(report: EvidenceReport): string {
   if (failedCases.length > 0) {
     lines.push('', '## Failed test cases', '');
     for (const { commandId, testCase } of failedCases) {
+      const location = testCase.file ? `; location=${JSON.stringify(`${testCase.file}${testCase.line ? `:${testCase.line}` : ''}`)}` : '';
       const type = testCase.failure?.type ? `; type=${JSON.stringify(testCase.failure.type)}` : '';
       const message = testCase.failure?.message ? `; message=${JSON.stringify(testCase.failure.message)}` : '';
       const truncation = testCase.failure?.typeTruncated || testCase.failure?.messageTruncated ? '; truncated=true' : '';
-      lines.push(`- \`${commandId}\`: \`${testCase.fullName}\`${type}${message}${truncation}`);
+      lines.push(`- \`${commandId}\`: \`${testCase.fullName}\`${location}${type}${message}${truncation}`);
     }
   }
   lines.push('', '## Platform capability cases', '');

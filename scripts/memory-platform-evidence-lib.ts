@@ -59,6 +59,7 @@ export interface JUnitFailureDiagnostic {
   kind: 'failure' | 'error';
   type?: string;
   message?: string;
+  messageSource?: 'attribute' | 'body-first-line';
   typeTruncated?: boolean;
   messageTruncated?: boolean;
 }
@@ -68,6 +69,7 @@ export interface JUnitCase {
   name: string;
   fullName: string;
   file?: string;
+  line?: number;
   status: 'passed' | 'failed' | 'skipped';
   failure?: JUnitFailureDiagnostic;
 }
@@ -109,6 +111,19 @@ function parseCount(attributes: Record<string, string>, key: string): number {
   return value;
 }
 
+const MAX_RAW_FAILURE_BODY_LINE_CHARS = 2_048;
+
+/** Extract one bounded non-empty line only; never retain the remaining body or stack. */
+function firstFailureBodyLine(body: string): string | undefined {
+  const withoutCdataStart = body.replace(/^\s*<!\[CDATA\[/, '');
+  for (const rawLine of withoutCdataStart.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/\]\]>$/, '').trim();
+    if (!line) continue;
+    return decodeXml(line.slice(0, MAX_RAW_FAILURE_BODY_LINE_CHARS));
+  }
+  return undefined;
+}
+
 /** Parse the stable JUnit shape emitted by `bun test --reporter=junit`. */
 export function parseBunJUnit(xml: string): JUnitReport {
   const root = xml.match(/<testsuites\b((?:"[^"]*"|[^>])*)>/);
@@ -129,7 +144,9 @@ export function parseBunJUnit(xml: string): JUnitReport {
     const classname = attributes.classname;
     if (!name || !classname) throw new Error('JUnit testcase is missing name or classname');
     const body = match[2] ?? '';
-    const failureElement = body.match(/<(failure|error)\b((?:"[^"]*"|[^>])*)\/?\s*>/);
+    const failureElement = body.match(
+      /<(failure|error)\b((?:"[^"]*"|[^>])*?)(?:\/\s*>|>([\s\S]*?)<\/\1\s*>)/,
+    );
     const status = failureElement
       ? 'failed'
       : /<skipped\b/.test(body)
@@ -138,10 +155,13 @@ export function parseBunJUnit(xml: string): JUnitReport {
     let failure: JUnitFailureDiagnostic | undefined;
     if (failureElement) {
       const failureAttributes = parseAttributes(failureElement[2] ?? '');
+      const attributeMessage = failureAttributes.message;
+      const bodyFirstLine = attributeMessage ? undefined : firstFailureBodyLine(failureElement[3] ?? '');
       failure = {
         kind: failureElement[1] as JUnitFailureDiagnostic['kind'],
         ...(failureAttributes.type ? { type: failureAttributes.type } : {}),
-        ...(failureAttributes.message ? { message: failureAttributes.message } : {}),
+        ...(attributeMessage ? { message: attributeMessage, messageSource: 'attribute' as const } : {}),
+        ...(bodyFirstLine ? { message: bodyFirstLine, messageSource: 'body-first-line' as const } : {}),
       };
     }
     cases.push({
@@ -149,6 +169,9 @@ export function parseBunJUnit(xml: string): JUnitReport {
       name,
       fullName: `${classname} > ${name}`,
       ...(attributes.file ? { file: normalizeRelativePath(attributes.file) } : {}),
+      ...(Number.isSafeInteger(Number(attributes.line)) && Number(attributes.line) > 0
+        ? { line: Number(attributes.line) }
+        : {}),
       status,
       ...(failure ? { failure } : {}),
     });
@@ -366,7 +389,14 @@ export function sanitizeJUnitFailureDiagnostics(
   secretValues: readonly string[],
 ): JUnitReport {
   const cases = report.cases.map(testCase => {
-    if (!testCase.failure) return { ...testCase };
+    const sanitizedFile = testCase.file
+      ? redactUnknownAbsolutePaths(sanitizePaths(testCase.file, roots))
+      : undefined;
+    const sanitizedCase = {
+      ...testCase,
+      ...(sanitizedFile ? { file: sanitizedFile } : {}),
+    };
+    if (!testCase.failure) return sanitizedCase;
     const failure: JUnitFailureDiagnostic = { kind: testCase.failure.kind };
 
     if (testCase.failure.type && !containsSecretMaterial(testCase.failure.type, secretValues)) {
@@ -384,11 +414,12 @@ export function sanitizeJUnitFailureDiagnostics(
       if (!containsSecretMaterial(cleaned, secretValues)) {
         const limited = bounded(cleaned, MAX_JUNIT_FAILURE_MESSAGE_CHARS);
         failure.message = limited.value;
+        if (testCase.failure.messageSource) failure.messageSource = testCase.failure.messageSource;
         if (limited.truncated) failure.messageTruncated = true;
       }
     }
 
-    return { ...testCase, failure };
+    return { ...sanitizedCase, failure };
   });
   return { counts: { ...report.counts }, cases };
 }

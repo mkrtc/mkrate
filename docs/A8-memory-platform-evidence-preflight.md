@@ -36,7 +36,7 @@ The strict runner:
 9. bounds protected-store entry count, depth, per-file bytes, and total bytes; symlinks and unsupported entries fail closed rather than being followed;
 10. confirms the full non-ignored working-tree status remains byte-for-byte stable during the run;
 11. requires every source-manifest path to exist in the exact `HEAD` tree before hashing tested memory/credential/server sources, the runner, workflow, package manifests, tsconfigs, and lockfile;
-12. emits schema-v4 path-sanitized, secret-free JSON and Markdown artifacts; failed cases may include only bounded, sanitized JUnit `<failure>`/`<error>` kind, `type`, and `message` attributes. Failure bodies and arbitrary stdout/stderr are never captured, while the whole artifact is still rejected if a known path or secret survives.
+12. emits schema-v4 path-sanitized, secret-free JSON and Markdown artifacts; failed cases may include only a sanitized testcase file, positive numeric line, and bounded, sanitized JUnit `<failure>`/`<error>` kind, `type`, and message. A structured `message` attribute is preferred; when Bun omits it, only the first non-empty body line is eligible as a fallback. Remaining body lines, stacks, and arbitrary stdout/stderr are never retained, while the whole artifact is still rejected if a known path or secret survives.
 
 `MEMORY_EVIDENCE_ALLOW_DIRTY=1` is an explicit local-development exception for the working-tree cleanliness gate only. Source-manifest provenance remains strict: an ignored or untracked relevant source still fails. Dirty artifacts are labeled `local-preflight` and cannot be interpreted as clean-commit evidence. CI never sets this exception.
 

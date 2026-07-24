@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn, type Mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -39,7 +39,6 @@ describe('SessionManager external Memory reconciliation', () => {
   let sessionId: string
   let sm: SessionManager
   let workspace: { id: string; name: string; rootPath: string; createdAt: number }
-  let watcherStartSpy: Mock<typeof ConfigWatcher.prototype.start>
 
   beforeEach(() => {
     workspaceRootPath = mkdtempSync(join(tmpdir(), 'session-manager-memory-watch-'))
@@ -50,12 +49,14 @@ describe('SessionManager external Memory reconciliation', () => {
       rootPath: workspaceRootPath,
       createdAt: 1,
     }
-    sm = new SessionManager()
-    // Exercise the real ConfigWatcher dispatch/debounce/header-read path without
-    // allocating recursive OS watchers (which is nondeterministic under CI
-    // inotify limits). notifyFileChange still runs the production watcher code.
-    watcherStartSpy = spyOn(ConfigWatcher.prototype, 'start').mockImplementation(function (this: ConfigWatcher) {
-      ;(this as unknown as { isRunning: boolean }).isRunning = true
+    sm = new SessionManager({
+      configWatcherFactory: (workspacePath, callbacks) => {
+        const watcher = new ConfigWatcher(workspacePath, callbacks)
+        watcher.start = function (this: ConfigWatcher): void {
+          ;(this as unknown as { isRunning: boolean }).isRunning = true
+        }
+        return watcher
+      },
     })
     // Keep this test focused on ConfigWatcher -> SessionManager production
     // reconciliation without starting an AutomationSystem scheduler.
@@ -68,7 +69,6 @@ describe('SessionManager external Memory reconciliation', () => {
   afterEach(async () => {
     await sm.flushSession(sessionId).catch(() => {})
     await sm.cleanup()
-    watcherStartSpy.mockRestore()
     sessionPersistenceQueue.cancel(sessionId)
     rmSync(workspaceRootPath, { recursive: true, force: true })
   })
@@ -96,6 +96,9 @@ describe('SessionManager external Memory reconciliation', () => {
   }
 
   function seedManaged(initial: StoredSession): void {
+    // Exercise the real ConfigWatcher dispatch/debounce/header-read path without
+    // allocating recursive OS watchers. The injected factory stubs start() only
+    // on this manager's watcher instance; no global prototype state is changed.
     const filePath = getSessionFilePath(workspaceRootPath, sessionId)
     mkdirSync(dirname(filePath), { recursive: true })
     writeSessionJsonl(filePath, initial)
