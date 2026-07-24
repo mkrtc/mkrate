@@ -423,6 +423,52 @@ describe('orphan staging sweep (fail closed)', () => {
   });
 });
 
+describe('setCredentialMode forward-only recovery (drift repair)', () => {
+  async function drifted() {
+    const { repo, manager } = makeStack();
+    const setup = coordinatorOn(repo, manager);
+    const created = await setup.createConnection(CONN, 0, 'sk-drift');
+    // Force a key/mode drift: key present, mode 'none' (the inconsistent state this op repairs).
+    const d = await repo.applyConnectionConfig(created.connectionId, { credentialMode: 'none' }, created.revision);
+    return { repo, manager, connectionId: created.connectionId, revision: d.revision };
+  }
+
+  test('a live failure after durable intent stays journaled/retryable — never a rolled-back inconsistent success', async () => {
+    const { repo, manager, connectionId, revision } = await drifted();
+    // Live failure at the config barrier (a plain error, not a simulated crash).
+    const failing = coordinatorOn(repo, manager, { onStep: (ctx) => { if (ctx.mode === 'live' && ctx.barrier === 'config' && ctx.phase === 'before') throw new Error('boom'); } });
+    await expect(failing.setCredentialMode(connectionId, 'stored-api-key', revision)).rejects.toThrow('boom');
+
+    // The drift is NOT silently declared "resolved", and the intent survives for retry.
+    expect(repo.getConnection(connectionId)!.credentialMode).toBe('none');
+    const entries = failing.getJournalStore().listEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.operation).toBe('setCredentialMode');
+
+    // Recovery completes it FORWARD → consistent (mode stored, key intact), journal drained.
+    const recovered = coordinatorOn(repo, manager);
+    await recovered.ensureRecovered();
+    expect(repo.getConnection(connectionId)!.credentialMode).toBe('stored-api-key');
+    expect(await manager.getMemoryApiKey(connectionId)).toBe('sk-drift');
+    expect(recovered.getJournalStore().listEntries()).toEqual([]);
+  });
+
+  test('recovery rolls FORWARD from config:doing even though inspect() sees the inconsistent pre-state', async () => {
+    const { repo, manager, connectionId, revision } = await drifted();
+    // Crash at config:before → status config:doing, effect not run; inspect() will see mode 'none' (pre).
+    const crashing = coordinatorOn(repo, manager, crashAt('config', 'before'));
+    await expect(crashing.setCredentialMode(connectionId, 'stored-api-key', revision)).rejects.toBeInstanceOf(SagaAbortError);
+
+    const recovered = coordinatorOn(repo, manager);
+    await recovered.ensureRecovered();
+    // Forward-repaired to a consistent state, never left at the drift.
+    const conn = repo.getConnection(connectionId)!;
+    expect(conn.credentialMode).toBe('stored-api-key');
+    const hasKey = (await manager.getMemoryApiKey(connectionId)) !== null;
+    expect(conn.credentialMode === 'stored-api-key').toBe(hasKey);
+  });
+});
+
 describe('outer lease', () => {
   test('concurrent operations are serialized (never overlap) under the lease', async () => {
     const lease = new SagaLease({ dir, leasePath: join(dir, SAGA_LEASE_FILE), acquireTimeoutMs: 2_000 });
