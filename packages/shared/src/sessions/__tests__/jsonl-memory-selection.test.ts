@@ -75,8 +75,8 @@ describe('session JSONL Memory selection persistence', () => {
     const created = await createSession(workspace);
     const session = loadSession(workspace, created.id)!;
     const upper = {
-      connectionId: randomUUID().toUpperCase(),
-      spaceId: randomUUID().toUpperCase(),
+      connectionId: 'AAAAAAAA-E89B-42D3-8456-426614174000',
+      spaceId: 'BBBBBBBB-E89B-42D3-8456-426614174001',
     };
     const later = ref();
     session.enabledMemorySpaceRefs = [later, upper];
