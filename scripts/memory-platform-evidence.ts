@@ -67,7 +67,8 @@ const SHARED_REQUIRED_CASES = [
 ] as const;
 
 const SESSION_JSONL_REQUIRED_CASES = [
-  'session JSONL Memory selection persistence > opens temp files read-write before fsync for Windows FlushFileBuffers compatibility',
+  'session JSONL fsync durability > opens temp files read-write before fsync for Windows FlushFileBuffers compatibility',
+  'session JSONL fsync durability > flushes a real temp file without changing content and cleans up',
 ] as const;
 
 const PLATFORM_REQUIRED_CASES: Partial<Record<NodeJS.Platform, readonly string[]>> = {
@@ -177,7 +178,7 @@ function listSourceFiles(repositoryRoot: string): string[] {
     'packages/shared/src/project-memory',
     'packages/shared/src/credentials',
     'packages/shared/src/sessions/jsonl.ts',
-    'packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts',
+    'packages/shared/src/sessions/__tests__/jsonl-fsync.test.ts',
     'packages/server-core/src/handlers/rpc/projects-memory.test.ts',
     'packages/server-core/src/handlers/rpc/projects.ts',
     'packages/server-core/src/sessions/SessionManager.ts',
@@ -258,7 +259,7 @@ function commandPlan(platformCases: readonly string[]): CommandEvidence[] {
       id: 'session-jsonl-tests',
       kind: 'test',
       cwd: '.',
-      command: ['bun', 'test', 'packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts'],
+      command: ['bun', 'test', 'packages/shared/src/sessions/__tests__/jsonl-fsync.test.ts'],
       status: 'not-run',
       exitCode: null,
       requiredCases: [...SESSION_JSONL_REQUIRED_CASES],

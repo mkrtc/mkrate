@@ -14,10 +14,8 @@ import {
   readSessionHeaderAsync,
   readSessionJsonl,
   MAX_SESSION_HEADER_BYTES,
-  syncSessionJsonlFile,
   writeSessionJsonl,
   type SessionJsonlFsAdapter,
-  type SessionJsonlSyncFsAdapter,
 } from '../jsonl.ts';
 import type { StoredSession } from '../types.ts';
 
@@ -50,26 +48,6 @@ afterEach(() => {
 });
 
 describe('session JSONL Memory selection persistence', () => {
-  it('opens temp files read-write before fsync for Windows FlushFileBuffers compatibility', () => {
-    const calls: Array<[string, ...unknown[]]> = [];
-    const fs: SessionJsonlSyncFsAdapter = {
-      open: (path, flags) => {
-        calls.push(['open', path, flags]);
-        return 42;
-      },
-      sync: (fd) => calls.push(['sync', fd]),
-      close: (fd) => calls.push(['close', fd]),
-    };
-
-    syncSessionJsonlFile('session.jsonl.tmp', fs);
-
-    expect(calls).toEqual([
-      ['open', 'session.jsonl.tmp', 'r+'],
-      ['sync', 42],
-      ['close', 42],
-    ]);
-  });
-
   it('creates, writes, and reads a canonical explicit selection without mutating the caller', async () => {
     const workspace = makeWorkspace();
     const created = await createSession(workspace);

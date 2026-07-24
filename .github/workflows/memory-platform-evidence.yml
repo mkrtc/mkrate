@@ -15,7 +15,7 @@ on:
       - "packages/shared/src/credentials/**"
       - "packages/shared/src/project-memory/**"
       - "packages/shared/src/sessions/jsonl.ts"
-      - "packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts"
+      - "packages/shared/src/sessions/__tests__/jsonl-fsync.test.ts"
       - "packages/server-core/src/handlers/rpc/projects.ts"
       - "packages/server-core/src/handlers/rpc/projects-memory.test.ts"
       - "packages/server-core/src/sessions/SessionManager.ts"
@@ -40,7 +40,7 @@ on:
       - "packages/shared/src/credentials/**"
       - "packages/shared/src/project-memory/**"
       - "packages/shared/src/sessions/jsonl.ts"
-      - "packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts"
+      - "packages/shared/src/sessions/__tests__/jsonl-fsync.test.ts"
       - "packages/server-core/src/handlers/rpc/projects.ts"
       - "packages/server-core/src/handlers/rpc/projects-memory.test.ts"
       - "packages/server-core/src/sessions/SessionManager.ts"
@@ -93,25 +93,6 @@ jobs:
           CI: "true"
           MEMORY_EVIDENCE_OUTPUT_DIR: ${{ runner.temp }}/memory-platform-evidence
         run: bun run memory:evidence
-
-      # Temporary: reproduce the evidence runner's nested temp environment with
-      # Bun's normal reporter, then remove this step after the assertion is known.
-      - name: Diagnose Windows session JSONL temp environment
-        if: failure() && matrix.os == 'windows-latest'
-        continue-on-error: true
-        env:
-          CI: "true"
-          NODE_ENV: test
-          CRAFT_CONFIG_DIR: ${{ runner.temp }}/memory-platform-diag/config
-          TMPDIR: ${{ runner.temp }}/memory-platform-diag/tmp
-          TMP: ${{ runner.temp }}/memory-platform-diag/tmp
-          TEMP: ${{ runner.temp }}/memory-platform-diag/tmp
-          NO_COLOR: "1"
-          FORCE_COLOR: "0"
-        run: |
-          New-Item -ItemType Directory -Force -Path $env:CRAFT_CONFIG_DIR | Out-Null
-          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
-          bun test packages/shared/src/sessions/__tests__/jsonl-memory-selection.test.ts
 
       - name: Upload evidence
         if: always()

@@ -28,7 +28,7 @@ The strict runner:
 1. requires a clean non-ignored working tree (staged, unstaged, and untracked changes all fail);
 2. records the exact commit, Git tree, OS version, architecture, runner image metadata when available, and Bun version;
 3. creates a realpath-resolved evidence sandbox below the physical OS temp directory and forces child `TMPDIR`, `TMP`, and `TEMP` to a nested physical temp root, preventing alias paths such as macOS `/var` → `/private/var` from invalidating containment checks;
-4. runs the full `packages/shared/src/project-memory/` and `packages/shared/src/credentials/` domain, the focused session JSONL durability suite, and the three server memory suites using separate Bun JUnit reports;
+4. runs the full `packages/shared/src/project-memory/` and `packages/shared/src/credentials/` domain, the dedicated two-case session JSONL fsync suite, and the three server memory suites using separate Bun JUnit reports;
 5. rejects any failure, skip, duplicate exact name, or missing required security-critical shared/server case;
 6. requires every named A5 child-process crash window plus server startup-gate, serialization, reconciliation, and deny-before-callback cases rather than brittle historical aggregate totals;
 7. runs and records core, shared, and server-core typechecks as separate commands, including exact arguments, working directory, status, and exit code;
