@@ -5,11 +5,13 @@ import { isAbsolute, join } from 'node:path';
 import {
   MAX_JUNIT_FAILURE_MESSAGE_CHARS,
   MAX_JUNIT_FAILURE_TYPE_CHARS,
+  MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX,
   REQUIRED_COMMAND_IDS,
   SERVER_REQUIRED_CASES,
   assertArtifactSanitized,
   caseManifestHash,
   createPhysicalTempEnvironment,
+  extractMemoryEvidenceDiagnostics,
   fingerprintProtectedStore,
   parseBunJUnit,
   sanitizeJUnitFailureDiagnostics,
@@ -169,6 +171,39 @@ describe('memory platform evidence library', () => {
       passingReport(SERVER_REQUIRED_CASES.slice(0, -1)),
       SERVER_REQUIRED_CASES,
     )).toThrow(/missing required exact case/);
+  });
+
+  test('extracts only bounded allowlisted boolean diagnostics from failed-command stderr', () => {
+    const valid = `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}${JSON.stringify({
+      code: 'watch.seed',
+      state: { headerRead: true, headerSelectionA: true, watcherReady: false },
+    })}`;
+    const another = `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}${JSON.stringify({
+      code: 'fresh.after',
+      state: { diskRead: true, diskSelectionB: false, singleLine: true },
+    })}`;
+    const stderr = [
+      'arbitrary stderr with sk-do-not-capture and /private/path',
+      valid,
+      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}{"code":"unknown","state":{"matched":true}}`,
+      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}{"code":"watch.wait","state":{"path":"/private/path"}}`,
+      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}{"code":"watch.wait","state":{"matched":true},"secret":"sk-do-not-capture"}`,
+      `${MEMORY_EVIDENCE_DIAGNOSTIC_PREFIX}not-json`,
+      another,
+    ].join('\n');
+
+    expect(extractMemoryEvidenceDiagnostics(stderr)).toEqual([
+      {
+        code: 'watch.seed',
+        state: { headerRead: true, headerSelectionA: true, watcherReady: false },
+      },
+      {
+        code: 'fresh.after',
+        state: { diskRead: true, diskSelectionB: false, singleLine: true },
+      },
+    ]);
+    expect(JSON.stringify(extractMemoryEvidenceDiagnostics(stderr))).not.toContain('do-not-capture');
+    expect(extractMemoryEvidenceDiagnostics(Array.from({ length: 70 }, () => valid).join('\n'))).toHaveLength(64);
   });
 
   test('requires one passing structured record for every evidence command', () => {

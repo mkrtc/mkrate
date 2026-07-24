@@ -18,6 +18,7 @@ import {
   assertArtifactSanitized,
   caseManifestHash,
   createPhysicalTempEnvironment,
+  extractMemoryEvidenceDiagnostics,
   fingerprintProtectedStore,
   normalizeRelativePath,
   parseBunJUnit,
@@ -311,8 +312,11 @@ async function runRecordedCommand(
     child.exited,
   ]);
   void stdout;
-  void stderr;
   command.exitCode = exitCode;
+  if (exitCode !== 0) {
+    const diagnostics = extractMemoryEvidenceDiagnostics(stderr);
+    if (diagnostics.length > 0) command.diagnostics = diagnostics;
+  }
 
   if (command.kind === 'test') {
     if (!junitPath || !existsSync(junitPath)) {
@@ -406,6 +410,15 @@ function markdown(report: EvidenceReport): string {
   for (const command of report.commands) {
     const counts = command.counts ? `; ${command.counts.tests} tests, ${command.counts.failures} failures, ${command.counts.skipped} skips` : '';
     lines.push(`- **${command.status}:** \`${command.id}\` — exit ${command.exitCode ?? 'not-run'}${counts}`);
+  }
+  const diagnostics = report.commands.flatMap(command =>
+    (command.diagnostics ?? []).map(diagnostic => ({ commandId: command.id, diagnostic })),
+  );
+  if (diagnostics.length > 0) {
+    lines.push('', '## Allowlisted failure diagnostics', '');
+    for (const { commandId, diagnostic } of diagnostics) {
+      lines.push(`- \`${commandId}\`: \`${diagnostic.code}\` ${JSON.stringify(diagnostic.state)}`);
+    }
   }
   const failedCases = report.commands.flatMap(command =>
     (command.cases ?? []).filter(testCase => testCase.status === 'failed').map(testCase => ({ commandId: command.id, testCase })),
