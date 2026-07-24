@@ -67,7 +67,7 @@ describe('SessionManager external Memory reconciliation', () => {
 
   afterEach(async () => {
     await sm.flushSession(sessionId).catch(() => {})
-    sm.cleanup()
+    await sm.cleanup()
     watcherStartSpy.mockRestore()
     sessionPersistenceQueue.cancel(sessionId)
     rmSync(workspaceRootPath, { recursive: true, force: true })
@@ -234,7 +234,7 @@ describe('SessionManager external Memory reconciliation', () => {
     await Bun.sleep(140)
     expect(current().enabledMemorySpaceRefs).toEqual([refA])
 
-    sm.cleanup()
+    await sm.cleanup()
     await Bun.sleep(260)
     expect(current().enabledMemorySpaceRefs).toEqual([refA])
   })

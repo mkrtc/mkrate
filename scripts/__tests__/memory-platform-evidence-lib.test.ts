@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { platform, tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import {
+  MAX_JUNIT_FAILURE_MESSAGE_CHARS,
+  MAX_JUNIT_FAILURE_TYPE_CHARS,
   REQUIRED_COMMAND_IDS,
   SERVER_REQUIRED_CASES,
   assertArtifactSanitized,
   caseManifestHash,
+  createPhysicalTempEnvironment,
   fingerprintProtectedStore,
   parseBunJUnit,
+  sanitizeJUnitFailureDiagnostics,
   sanitizePaths,
   validateCommandEvidence,
   validateJUnitEvidence,
@@ -25,6 +29,15 @@ const JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
       <testcase name="rejects &quot;unsafe&quot; input" classname="security &amp; durability" file="suite.ts" assertions="2" />
       <testcase name="serializes two processes" classname="security &amp; durability" file="suite.ts" assertions="1" />
     </testsuite>
+  </testsuite>
+</testsuites>`;
+
+const FAILING_JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="1" assertions="1" failures="1" skipped="0" time="0.1">
+  <testsuite name="suite.ts" tests="1" assertions="1" failures="1" skipped="0">
+    <testcase name="fails safely" classname="security" file="suite.ts" assertions="1">
+      <failure type="AssertionError" message="failed at /known/root/file.ts > comparison">ARBITRARY_BODY_SECRET_SHOULD_NEVER_BE_CAPTURED</failure>
+    </testcase>
   </testsuite>
 </testsuites>`;
 
@@ -81,6 +94,19 @@ describe('memory platform evidence library', () => {
       'security & durability > serializes two processes',
     ]);
     validateJUnitEvidence(report, ['security & durability > serializes two processes']);
+  });
+
+  test('parses only structured failure attributes and never captures failure bodies', () => {
+    const report = parseBunJUnit(FAILING_JUNIT);
+    expect(report.cases[0]).toMatchObject({
+      status: 'failed',
+      failure: {
+        kind: 'failure',
+        type: 'AssertionError',
+        message: 'failed at /known/root/file.ts > comparison',
+      },
+    });
+    expect(JSON.stringify(report)).not.toContain('ARBITRARY_BODY_SECRET_SHOULD_NEVER_BE_CAPTURED');
   });
 
   test('rejects skips, missing required cases, and duplicate exact names', () => {
@@ -188,6 +214,62 @@ describe('memory platform evidence library', () => {
     expect(() => assertArtifactSanitized('token=production-token-value', [], ['production-token-value'])).toThrow(/secret-like/);
     expect(() => assertArtifactSanitized('value=sk-example123', [], [])).toThrow(/secret-shaped/);
     expect(() => assertArtifactSanitized('Authorization: Bearer example.token.value', [], [])).toThrow(/secret-shaped/);
+    expect(() => assertArtifactSanitized('api_key=example-secret-value', [], [])).toThrow(/secret-shaped/);
+  });
+
+  test('bounds and sanitizes JUnit failure attributes while omitting unsafe material', () => {
+    const knownRoot = '/known/root';
+    const longType = `Type${'X'.repeat(MAX_JUNIT_FAILURE_TYPE_CHARS + 20)}`;
+    const longMessage = `failed at ${knownRoot}/file.ts ${'m'.repeat(MAX_JUNIT_FAILURE_MESSAGE_CHARS + 20)}`;
+    const report: JUnitReport = {
+      counts: { tests: 7, assertions: 7, failures: 7, skipped: 0 },
+      cases: [
+        { classname: 'suite', name: 'bounded', fullName: 'suite > bounded', status: 'failed', failure: { kind: 'failure', type: longType, message: longMessage } },
+        { classname: 'suite', name: 'shaped', fullName: 'suite > shaped', status: 'failed', failure: { kind: 'error', message: 'token=example-secret-value' } },
+        { classname: 'suite', name: 'environment', fullName: 'suite > environment', status: 'failed', failure: { kind: 'failure', message: 'credential production-token-value' } },
+        { classname: 'suite', name: 'unknown-path', fullName: 'suite > unknown-path', status: 'failed', failure: { kind: 'failure', message: 'failed under C:\\private\\file.ts' } },
+        { classname: 'suite', name: 'unc-path', fullName: 'suite > unc-path', status: 'failed', failure: { kind: 'failure', message: 'failed under \\\\server\\share\\private\\file.ts' } },
+        { classname: 'suite', name: 'extended-path', fullName: 'suite > extended-path', status: 'failed', failure: { kind: 'failure', message: 'failed under \\\\?\\C:\\private\\file.ts' } },
+        { classname: 'suite', name: 'punctuated-posix', fullName: 'suite > punctuated-posix', status: 'failed', failure: { kind: 'failure', message: 'failed at (/private/root/file.ts)' } },
+      ],
+    };
+    const sanitized = sanitizeJUnitFailureDiagnostics(
+      report,
+      [{ path: knownRoot, replacement: '<KNOWN_ROOT>' }],
+      ['production-token-value'],
+    );
+
+    expect(sanitized.cases[0]!.failure).toMatchObject({
+      typeTruncated: true,
+      messageTruncated: true,
+    });
+    expect(sanitized.cases[0]!.failure!.type).toHaveLength(MAX_JUNIT_FAILURE_TYPE_CHARS);
+    expect(sanitized.cases[0]!.failure!.message).toHaveLength(MAX_JUNIT_FAILURE_MESSAGE_CHARS);
+    expect(sanitized.cases[0]!.failure!.message).toContain('<KNOWN_ROOT>/file.ts');
+    expect(sanitized.cases[0]!.failure!.message).not.toContain(knownRoot);
+    expect(sanitized.cases[1]!.failure).toEqual({ kind: 'error' });
+    expect(sanitized.cases[2]!.failure).toEqual({ kind: 'failure' });
+    expect(sanitized.cases[3]!.failure!.message).toBe('failed under <ABSOLUTE_PATH>');
+    expect(sanitized.cases[4]!.failure!.message).toBe('failed under <ABSOLUTE_PATH>');
+    expect(sanitized.cases[5]!.failure!.message).toBe('failed under <ABSOLUTE_PATH>');
+    expect(sanitized.cases[6]!.failure!.message).toBe('failed at (<ABSOLUTE_PATH>');
+    expect(() => assertArtifactSanitized(JSON.stringify(sanitized), [knownRoot], ['production-token-value'])).not.toThrow();
+  });
+
+  test('creates evidence and child temp roots beneath a physical temp path', () => {
+    const outer = tempRoot();
+    const physical = join(outer, 'physical');
+    const alias = join(outer, 'alias');
+    mkdirSync(physical);
+    symlinkSync(physical, alias, platform() === 'win32' ? 'junction' : 'dir');
+
+    const isolated = createPhysicalTempEnvironment(alias, 'evidence-');
+    const physicalPrefix = `${realpathSync.native(physical)}${process.platform === 'win32' ? '\\' : '/'}`;
+    expect(isAbsolute(isolated.root)).toBe(true);
+    expect(isolated.root.startsWith(physicalPrefix)).toBe(true);
+    expect(isolated.root).toBe(realpathSync.native(isolated.root));
+    expect(isolated.childTempRoot).toBe(realpathSync.native(isolated.childTempRoot));
+    expect(isolated.childTempRoot.startsWith(`${isolated.root}${process.platform === 'win32' ? '\\' : '/'}`)).toBe(true);
   });
 
   test('case manifest hash is stable across report order', () => {

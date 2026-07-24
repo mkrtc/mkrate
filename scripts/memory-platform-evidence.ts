@@ -4,7 +4,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -18,9 +17,11 @@ import {
   SERVER_REQUIRED_CASES,
   assertArtifactSanitized,
   caseManifestHash,
+  createPhysicalTempEnvironment,
   fingerprintProtectedStore,
   normalizeRelativePath,
   parseBunJUnit,
+  sanitizeJUnitFailureDiagnostics,
   sanitizePaths,
   sha256File,
   sha256Text,
@@ -85,7 +86,7 @@ const PLATFORM_REQUIRED_CASES: Partial<Record<NodeJS.Platform, readonly string[]
 };
 
 interface EvidenceReport {
-  schemaVersion: 3;
+  schemaVersion: 4;
   outcome: 'pass' | 'fail';
   evidenceMode: 'clean-tree-evidence' | 'local-preflight';
   generatedAt: string;
@@ -209,7 +210,7 @@ function sourceManifest(repositoryRoot: string): Array<{ path: string; sha256: s
   return listSourceFiles(repositoryRoot).map(path => ({ path, sha256: sha256File(join(repositoryRoot, path)) }));
 }
 
-function isolatedEnvironment(sandboxConfigDir: string): Record<string, string> {
+function isolatedEnvironment(sandboxConfigDir: string, childTempRoot: string): Record<string, string> {
   const preserved = [
     'PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TMP', 'TEMP', 'TMPDIR',
     'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'CI', 'GITHUB_ACTIONS', 'RUNNER_OS',
@@ -224,6 +225,9 @@ function isolatedEnvironment(sandboxConfigDir: string): Record<string, string> {
     ...env,
     NODE_ENV: 'test',
     CRAFT_CONFIG_DIR: sandboxConfigDir,
+    TMPDIR: childTempRoot,
+    TMP: childTempRoot,
+    TEMP: childTempRoot,
     NO_COLOR: '1',
     FORCE_COLOR: '0',
   };
@@ -286,6 +290,8 @@ async function runRecordedCommand(
   repositoryRoot: string,
   tempRoot: string,
   env: Record<string, string>,
+  diagnosticRoots: ReadonlyArray<{ path: string; replacement: string }>,
+  secretValues: readonly string[],
 ): Promise<string | null> {
   const actualCommand = [process.execPath, ...command.command.slice(1)];
   let junitPath: string | undefined;
@@ -314,7 +320,11 @@ async function runRecordedCommand(
       return `${command.id} did not produce JUnit output`;
     }
     try {
-      const junit = parseBunJUnit(readFileSync(junitPath, 'utf8'));
+      const junit = sanitizeJUnitFailureDiagnostics(
+        parseBunJUnit(readFileSync(junitPath, 'utf8')),
+        diagnosticRoots,
+        secretValues,
+      );
       command.counts = junit.counts;
       command.cases = junit.cases;
       validateJUnitEvidence(junit, command.requiredCases ?? []);
@@ -397,6 +407,18 @@ function markdown(report: EvidenceReport): string {
     const counts = command.counts ? `; ${command.counts.tests} tests, ${command.counts.failures} failures, ${command.counts.skipped} skips` : '';
     lines.push(`- **${command.status}:** \`${command.id}\` — exit ${command.exitCode ?? 'not-run'}${counts}`);
   }
+  const failedCases = report.commands.flatMap(command =>
+    (command.cases ?? []).filter(testCase => testCase.status === 'failed').map(testCase => ({ commandId: command.id, testCase })),
+  );
+  if (failedCases.length > 0) {
+    lines.push('', '## Failed test cases', '');
+    for (const { commandId, testCase } of failedCases) {
+      const type = testCase.failure?.type ? `; type=${JSON.stringify(testCase.failure.type)}` : '';
+      const message = testCase.failure?.message ? `; message=${JSON.stringify(testCase.failure.message)}` : '';
+      const truncation = testCase.failure?.typeTruncated || testCase.failure?.messageTruncated ? '; truncated=true' : '';
+      lines.push(`- \`${commandId}\`: \`${testCase.fullName}\`${type}${message}${truncation}`);
+    }
+  }
   lines.push('', '## Platform capability cases', '');
   for (const capability of report.capabilities) {
     lines.push(`- **${capability.status}:** \`${capability.exactCase}\` (${capability.mechanism})`);
@@ -433,7 +455,8 @@ function writeArtifacts(outputDir: string, report: EvidenceReport, forbiddenPath
 async function main(): Promise<void> {
   const repositoryRoot = resolve(import.meta.dir, '..');
   const outputDir = outputDirectory();
-  const tempRoot = mkdtempSync(join(tmpdir(), 'mkrate-memory-evidence-'));
+  const physicalTemp = createPhysicalTempEnvironment(tmpdir());
+  const tempRoot = physicalTemp.root;
   const realConfigDir = join(homedir(), '.craft-agent');
   const allowDirty = process.env.MEMORY_EVIDENCE_ALLOW_DIRTY === '1';
   const secretValues = Object.entries(process.env)
@@ -444,6 +467,7 @@ async function main(): Promise<void> {
     { path: repositoryRoot, replacement: '<REPOSITORY>' },
     { path: realConfigDir, replacement: '<REAL_CONFIG_DIR>' },
     { path: homedir(), replacement: '<HOME>' },
+    { path: physicalTemp.childTempRoot, replacement: '<TEST_TMP>' },
     { path: tempRoot, replacement: '<EVIDENCE_TMP>' },
     { path: outputDir, replacement: '<OUTPUT_DIR>' },
   ];
@@ -456,7 +480,7 @@ async function main(): Promise<void> {
   const commands = commandPlan(platformCases);
   let beforeProtected: ProtectedStoreFingerprint[] = [];
   let report: EvidenceReport = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     outcome: 'fail',
     evidenceMode: initialStatus ? 'local-preflight' : 'clean-tree-evidence',
     generatedAt: new Date().toISOString(),
@@ -508,10 +532,10 @@ async function main(): Promise<void> {
     report.protectedStore.before = beforeProtected;
     const sources = sourceManifest(repositoryRoot);
     validateSourceManifestProvenance(sources.map(source => source.path), trackedHeadPaths(repositoryRoot));
-    const env = isolatedEnvironment(join(tempRoot, 'isolated-config'));
+    const env = isolatedEnvironment(join(tempRoot, 'isolated-config'), physicalTemp.childTempRoot);
     const commandFailures: string[] = [];
     for (const command of commands) {
-      const commandFailure = await runRecordedCommand(command, repositoryRoot, tempRoot, env);
+      const commandFailure = await runRecordedCommand(command, repositoryRoot, tempRoot, env, roots, secretValues);
       if (commandFailure) commandFailures.push(commandFailure);
     }
     if (commandFailures.length > 0) throw new Error(commandFailures.join('; '));

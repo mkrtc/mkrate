@@ -27,15 +27,16 @@ The strict runner:
 
 1. requires a clean non-ignored working tree (staged, unstaged, and untracked changes all fail);
 2. records the exact commit, Git tree, OS version, architecture, runner image metadata when available, and Bun version;
-3. runs the full `packages/shared/src/project-memory/` and `packages/shared/src/credentials/` domain plus the three server memory suites using separate Bun JUnit reports;
-4. rejects any failure, skip, duplicate exact name, or missing required security-critical shared/server case;
-5. requires every named A5 child-process crash window plus server startup-gate, serialization, reconciliation, and deny-before-callback cases rather than brittle historical aggregate totals;
-6. runs and records core, shared, and server-core typechecks as separate commands, including exact arguments, working directory, status, and exit code;
-7. fingerprints `<REAL_CONFIG_DIR>/config.json`, every `credentials.enc*` file, and `<REAL_CONFIG_DIR>/memory/**` recursively before and after, failing on creation, deletion, or byte changes;
-8. bounds protected-store entry count, depth, per-file bytes, and total bytes; symlinks and unsupported entries fail closed rather than being followed;
-9. confirms the full non-ignored working-tree status remains byte-for-byte stable during the run;
-10. requires every source-manifest path to exist in the exact `HEAD` tree before hashing tested memory/credential/server sources, the runner, workflow, package manifests, tsconfigs, and lockfile;
-11. emits path-sanitized, secret-free JSON and Markdown artifacts.
+3. creates a realpath-resolved evidence sandbox below the physical OS temp directory and forces child `TMPDIR`, `TMP`, and `TEMP` to a nested physical temp root, preventing alias paths such as macOS `/var` → `/private/var` from invalidating containment checks;
+4. runs the full `packages/shared/src/project-memory/` and `packages/shared/src/credentials/` domain plus the three server memory suites using separate Bun JUnit reports;
+5. rejects any failure, skip, duplicate exact name, or missing required security-critical shared/server case;
+6. requires every named A5 child-process crash window plus server startup-gate, serialization, reconciliation, and deny-before-callback cases rather than brittle historical aggregate totals;
+7. runs and records core, shared, and server-core typechecks as separate commands, including exact arguments, working directory, status, and exit code;
+8. fingerprints `<REAL_CONFIG_DIR>/config.json`, every `credentials.enc*` file, and `<REAL_CONFIG_DIR>/memory/**` recursively before and after, failing on creation, deletion, or byte changes;
+9. bounds protected-store entry count, depth, per-file bytes, and total bytes; symlinks and unsupported entries fail closed rather than being followed;
+10. confirms the full non-ignored working-tree status remains byte-for-byte stable during the run;
+11. requires every source-manifest path to exist in the exact `HEAD` tree before hashing tested memory/credential/server sources, the runner, workflow, package manifests, tsconfigs, and lockfile;
+12. emits schema-v4 path-sanitized, secret-free JSON and Markdown artifacts; failed cases may include only bounded, sanitized JUnit `<failure>`/`<error>` kind, `type`, and `message` attributes. Failure bodies and arbitrary stdout/stderr are never captured, while the whole artifact is still rejected if a known path or secret survives.
 
 `MEMORY_EVIDENCE_ALLOW_DIRTY=1` is an explicit local-development exception for the working-tree cleanliness gate only. Source-manifest provenance remains strict: an ignored or untracked relevant source still fails. Dirty artifacts are labeled `local-preflight` and cannot be interpreted as clean-commit evidence. CI never sets this exception.
 

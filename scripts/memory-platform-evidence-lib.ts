@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const SERVER_REQUIRED_CASES = [
@@ -52,12 +52,24 @@ export const DEFAULT_PROTECTED_STORE_LIMITS: ProtectedStoreLimits = {
   maxDepth: 32,
 };
 
+export const MAX_JUNIT_FAILURE_TYPE_CHARS = 128;
+export const MAX_JUNIT_FAILURE_MESSAGE_CHARS = 512;
+
+export interface JUnitFailureDiagnostic {
+  kind: 'failure' | 'error';
+  type?: string;
+  message?: string;
+  typeTruncated?: boolean;
+  messageTruncated?: boolean;
+}
+
 export interface JUnitCase {
   classname: string;
   name: string;
   fullName: string;
   file?: string;
   status: 'passed' | 'failed' | 'skipped';
+  failure?: JUnitFailureDiagnostic;
 }
 
 export interface JUnitReport {
@@ -72,6 +84,8 @@ export interface JUnitReport {
 
 function decodeXml(value: string): string {
   return value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/g, (_match, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
     .replaceAll('&quot;', '"')
     .replaceAll('&apos;', "'")
     .replaceAll('&lt;', '<')
@@ -97,7 +111,7 @@ function parseCount(attributes: Record<string, string>, key: string): number {
 
 /** Parse the stable JUnit shape emitted by `bun test --reporter=junit`. */
 export function parseBunJUnit(xml: string): JUnitReport {
-  const root = xml.match(/<testsuites\b([^>]*)>/);
+  const root = xml.match(/<testsuites\b((?:"[^"]*"|[^>])*)>/);
   if (!root) throw new Error('JUnit report is missing the testsuites root');
   const rootAttributes = parseAttributes(root[1]!);
   const counts = {
@@ -108,24 +122,35 @@ export function parseBunJUnit(xml: string): JUnitReport {
   };
 
   const cases: JUnitCase[] = [];
-  const testcasePattern = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
+  const testcasePattern = /<testcase\b((?:"[^"]*"|[^>])*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
   for (const match of xml.matchAll(testcasePattern)) {
     const attributes = parseAttributes(match[1]!);
     const name = attributes.name;
     const classname = attributes.classname;
     if (!name || !classname) throw new Error('JUnit testcase is missing name or classname');
     const body = match[2] ?? '';
-    const status = /<(?:failure|error)\b/.test(body)
+    const failureElement = body.match(/<(failure|error)\b((?:"[^"]*"|[^>])*)\/?\s*>/);
+    const status = failureElement
       ? 'failed'
       : /<skipped\b/.test(body)
         ? 'skipped'
         : 'passed';
+    let failure: JUnitFailureDiagnostic | undefined;
+    if (failureElement) {
+      const failureAttributes = parseAttributes(failureElement[2] ?? '');
+      failure = {
+        kind: failureElement[1] as JUnitFailureDiagnostic['kind'],
+        ...(failureAttributes.type ? { type: failureAttributes.type } : {}),
+        ...(failureAttributes.message ? { message: failureAttributes.message } : {}),
+      };
+    }
     cases.push({
       classname,
       name,
       fullName: `${classname} > ${name}`,
       ...(attributes.file ? { file: normalizeRelativePath(attributes.file) } : {}),
       status,
+      ...(failure ? { failure } : {}),
     });
   }
 
@@ -274,6 +299,23 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export interface PhysicalTempEnvironment {
+  root: string;
+  childTempRoot: string;
+}
+
+/** Create the evidence sandbox and child temp directory beneath a physical OS temp path. */
+export function createPhysicalTempEnvironment(
+  osTempDirectory: string,
+  prefix = 'mkrate-memory-evidence-',
+): PhysicalTempEnvironment {
+  const physicalTempDirectory = realpathSync.native(osTempDirectory);
+  const root = realpathSync.native(mkdtempSync(join(physicalTempDirectory, prefix)));
+  const childTempRoot = join(root, 'tmp');
+  mkdirSync(childTempRoot, { recursive: true });
+  return { root, childTempRoot: realpathSync.native(childTempRoot) };
+}
+
 /** Replace known absolute roots in diagnostic text before it can enter an artifact. */
 export function sanitizePaths(text: string, roots: ReadonlyArray<{ path: string; replacement: string }>): string {
   let sanitized = text;
@@ -294,6 +336,63 @@ export function sanitizePaths(text: string, roots: ReadonlyArray<{ path: string;
   return sanitized;
 }
 
+function containsSecretMaterial(text: string, secretValues: readonly string[]): boolean {
+  if (secretValues.some(value => value.length >= 8 && text.includes(value))) return true;
+  return /\bsk-[A-Za-z0-9_-]{4,}\b/i.test(text)
+    || /\bbearer\s+[A-Za-z0-9._~-]{8,}\b/i.test(text)
+    || /\b(?:api[_-]?key|token|password|credential|secret)\s*[:=]\s*[^\s,;]{8,}/i.test(text);
+}
+
+function redactUnknownAbsolutePaths(text: string): string {
+  const uncRedacted = text
+    .replace(/(?:\\\\\?\\|\\\\)[^\s"'<>]*/g, '<ABSOLUTE_PATH>')
+    .replace(/\/\/[^\s"'<>]*/g, '<ABSOLUTE_PATH>');
+  const driveRedacted = uncRedacted.replace(/\b[A-Za-z]:[\\/][^\s"'<>]*/g, '<ABSOLUTE_PATH>');
+  return driveRedacted.replace(/(?<![A-Za-z0-9_>])\/(?!\/)[^\s"'<>]*/g, '<ABSOLUTE_PATH>');
+}
+
+function bounded(value: string, maximum: number): { value: string; truncated: boolean } {
+  if (value.length <= maximum) return { value, truncated: false };
+  return { value: value.slice(0, maximum), truncated: true };
+}
+
+/**
+ * Sanitize only structured JUnit failure attributes. Failure bodies and process
+ * output never enter this function or the artifact.
+ */
+export function sanitizeJUnitFailureDiagnostics(
+  report: JUnitReport,
+  roots: ReadonlyArray<{ path: string; replacement: string }>,
+  secretValues: readonly string[],
+): JUnitReport {
+  const cases = report.cases.map(testCase => {
+    if (!testCase.failure) return { ...testCase };
+    const failure: JUnitFailureDiagnostic = { kind: testCase.failure.kind };
+
+    if (testCase.failure.type && !containsSecretMaterial(testCase.failure.type, secretValues)) {
+      const cleaned = testCase.failure.type.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+      if (/^[A-Za-z0-9_.:$ -]+$/.test(cleaned)) {
+        const limited = bounded(cleaned, MAX_JUNIT_FAILURE_TYPE_CHARS);
+        failure.type = limited.value;
+        if (limited.truncated) failure.typeTruncated = true;
+      }
+    }
+
+    if (testCase.failure.message && !containsSecretMaterial(testCase.failure.message, secretValues)) {
+      const withoutControls = testCase.failure.message.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+      const cleaned = redactUnknownAbsolutePaths(sanitizePaths(withoutControls, roots));
+      if (!containsSecretMaterial(cleaned, secretValues)) {
+        const limited = bounded(cleaned, MAX_JUNIT_FAILURE_MESSAGE_CHARS);
+        failure.message = limited.value;
+        if (limited.truncated) failure.messageTruncated = true;
+      }
+    }
+
+    return { ...testCase, failure };
+  });
+  return { counts: { ...report.counts }, cases };
+}
+
 export function assertArtifactSanitized(
   content: string,
   forbiddenPaths: readonly string[],
@@ -310,7 +409,7 @@ export function assertArtifactSanitized(
       throw new Error('evidence artifact contains a value sourced from a secret-like environment variable');
     }
   }
-  if (/\bsk-[A-Za-z0-9_-]{4,}\b/i.test(content) || /\bbearer\s+[A-Za-z0-9._~-]{8,}\b/i.test(content)) {
+  if (containsSecretMaterial(content, [])) {
     throw new Error('evidence artifact contains secret-shaped material');
   }
 }
