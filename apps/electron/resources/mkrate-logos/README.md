@@ -6,9 +6,9 @@ brand sources, guidelines, license, and asset manifest live in
 
 | File | Use |
 |---|---|
-| `mkrate-app-icon.png` | 512×512 app-icon raster (dark plate, white mark, violet hub) |
-| `mkrate-mark.svg` | Full-color mark |
-| `mkrate-mark-mono-light.svg` | White mark for dark backgrounds |
-| `mkrate-mark-mono-dark.svg` | Ink mark for light backgrounds |
+| `mkrate-app-icon.png` | 512×512 approved kraken app-icon raster |
+| `mkrate-mark.svg` | Full kraken app mark |
+| `mkrate-mark-mono-light.svg` | White kraken silhouette for dark backgrounds |
+| `mkrate-mark-mono-dark.svg` | Ink kraken silhouette for light backgrounds |
 
 Do not edit these directly — update the sources under `docs/brand/assets/` and re-copy.

@@ -5,35 +5,9 @@
 import { Sun, Moon, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-/**
- * MkrateLogo - the Mkrate five-node "M" orchestration-graph mark (single-color,
- * inherits currentColor).
- */
+/** Canonical Mkrate kraken app icon. */
 function MkrateLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      role="img"
-      aria-label="Mkrate"
-    >
-      <path
-        d="M7 25 L7 7 L16 18 L25 7 L25 25"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="7" cy="25" r="2.6" fill="currentColor" />
-      <circle cx="7" cy="7" r="2.6" fill="currentColor" />
-      <circle cx="25" cy="7" r="2.6" fill="currentColor" />
-      <circle cx="25" cy="25" r="2.6" fill="currentColor" />
-      <circle cx="16" cy="18" r="3.4" fill="currentColor" />
-    </svg>
-  )
+  return <img src="/mkrate-icon.png" alt="Mkrate" className={className} />
 }
 
 interface HeaderProps {
@@ -54,7 +28,7 @@ export function Header({ hasSession, sessionTitle, isDark, onToggleTheme, onClea
         className="hover:opacity-80 transition-opacity"
         title="Mkrate"
       >
-        <MkrateLogo className="w-6 h-6 text-[#2452FF]" />
+        <MkrateLogo className="w-6 h-6" />
       </a>
 
       {/* Session title - centered */}

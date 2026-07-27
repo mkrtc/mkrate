@@ -1,121 +1,126 @@
 {
   "brand": "Mkrate",
-  "generated": "2026-07-23",
+  "identity": "approved white kraken on #0A0F1F abyss plate",
+  "generated": "2026-07-27",
+  "canonicalSource": {
+    "file": "assets/mkrate-icon-1024.png",
+    "sha256": "941584a70cef656815c36e6ab48885579f8c428f6847e81edfbf5e7b970b41b6",
+    "provenance": "user-provided and approved in project session 260724-quick-crane"
+  },
   "files": [
     {
       "file": "brand-guidelines.md",
       "format": "Markdown",
-      "use": "Full brand guideline document: rationale, palette, usage rules, contrast, forbidden usage",
-      "sourceOf": null,
-      "bytes": 8904,
-      "sha256": "33c812b7aee480fde31bd863cad9634e7673d2eb8d56463cfda1b07c807764f4"
+      "use": "Canonical kraken identity, source policy, platform usage, and forbidden usage",
+      "bytes": 4670,
+      "sha256": "400d52f90cf81cbc3b23224fb09a6a687c1ff66f9b3e99f24f117819047c8752"
+    },
+    {
+      "file": "assets/mkrate-icon-1024.png",
+      "format": "PNG",
+      "use": "Canonical user-approved Mkrate kraken source raster",
+      "dimensions": "1024x1024",
+      "sourceOf": [
+        "assets/mkrate-icon-square.svg",
+        "assets/mkrate-icon-512.png",
+        "assets/mkrate-icon-256.png",
+        "assets/mkrate-icon-64.png",
+        "assets/mkrate-favicon-32.png"
+      ],
+      "bytes": 64575,
+      "sha256": "941584a70cef656815c36e6ab48885579f8c428f6847e81edfbf5e7b970b41b6"
+    },
+    {
+      "file": "assets/mkrate-icon-square.svg",
+      "format": "SVG",
+      "use": "Self-contained exact wrapper around the canonical PNG for SVG consumers",
+      "dimensions": "1024x1024 (viewBox units, scalable)",
+      "embeddedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 86354,
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
     },
     {
       "file": "assets/mkrate-mark.svg",
       "format": "SVG",
-      "dimensions": "32x32 (viewBox units, scalable)",
-      "use": "Standalone brand mark, full color, transparent background — favicons, avatars, small tiles",
-      "sourceOf": [
-        "assets/mkrate-icon-square.svg"
-      ],
-      "bytes": 547,
-      "sha256": "9f3485a4f0d0329e939e1619fa6f1bb500e92be4a62e79eb2a8816dd3d3cb0ae"
+      "use": "Standalone full kraken app mark",
+      "dimensions": "1024x1024 (viewBox units, scalable)",
+      "embeddedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 86354,
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
     },
     {
       "file": "assets/mkrate-mark-mono-light.svg",
       "format": "SVG",
-      "dimensions": "32x32 (viewBox units, scalable)",
-      "use": "Single-color (white) mark for dark or colored backgrounds",
-      "sourceOf": [],
-      "bytes": 609,
-      "sha256": "549ca4f5cc559a62ee3492ae313d6315987cb41a5872f35fcf6410c3f756d3a7"
+      "use": "White kraken silhouette for dark/colored backgrounds",
+      "dimensions": "1024x1024 (viewBox units, scalable)",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 41239,
+      "sha256": "7ca37f5bca02a172be0e607869aa2ed062fa78cca1f484e90eb6eb5bc78b1086"
     },
     {
       "file": "assets/mkrate-mark-mono-dark.svg",
       "format": "SVG",
-      "dimensions": "32x32 (viewBox units, scalable)",
-      "use": "Single-color (ink) mark for light backgrounds where full color is unavailable (stamping, engraving, 1-color print)",
-      "sourceOf": [],
-      "bytes": 608,
-      "sha256": "8d71ee02a4b76a77e70f3fff75c54f7fe371d684757659eabec9949ab2b3ad40"
+      "use": "Ink kraken silhouette for light backgrounds",
+      "dimensions": "1024x1024 (viewBox units, scalable)",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 32703,
+      "sha256": "65b9daefa6c15c7fe82113857b02198187f05bff7dbda53e4b13862de7bb8497"
     },
     {
       "file": "assets/mkrate-wordmark.svg",
       "format": "SVG",
+      "use": "Lowercase mkrate logotype (live Inter SemiBold text; docs/marketing only)",
       "dimensions": "350x120 (viewBox units, scalable)",
-      "use": "Standalone logotype 'mkrate', Inter SemiBold, ink fill for light backgrounds",
-      "sourceOf": [],
       "bytes": 390,
       "sha256": "940bc327d7c26b4b5d0369107df22c0d460388a3de640ae2a6cc3dde890f1453"
     },
     {
       "file": "assets/mkrate-lockup-horizontal.svg",
       "format": "SVG",
+      "use": "Canonical kraken icon plus live-text wordmark",
       "dimensions": "490x120 (viewBox units, scalable)",
-      "use": "Primary combined logo (mark + wordmark) for READMEs, headers, marketing surfaces",
-      "sourceOf": [],
-      "bytes": 823,
-      "sha256": "da9f0faae68d74025106b848431f540a04b5647ac735f52230c18e8a92c9e0c5"
-    },
-    {
-      "file": "assets/mkrate-icon-square.svg",
-      "format": "SVG",
-      "dimensions": "1024x1024 (viewBox units, scalable)",
-      "use": "App-icon source: ink rounded-square background, white mark, violet hub, designed for platform icon safe areas",
-      "sourceOf": [
+      "derivedFrom": [
         "assets/mkrate-icon-1024.png",
-        "assets/mkrate-icon-512.png",
-        "assets/mkrate-icon-256.png",
-        "assets/mkrate-icon-64.png",
-        "assets/mkrate-favicon-32.png"
+        "assets/mkrate-wordmark.svg"
       ],
-      "bytes": 667,
-      "sha256": "f82ec432f9648725090da715eb544b09a5df4bcefb50e2b1090f7a2259bfc74f"
-    },
-    {
-      "file": "assets/mkrate-icon-1024.png",
-      "format": "PNG",
-      "dimensions": "1024x1024",
-      "use": "App icon — primary source raster (e.g. macOS/Windows/Linux packaging, app-store listings)",
-      "renderedFrom": "assets/mkrate-icon-square.svg",
-      "bytes": 37998,
-      "sha256": "6fcf43e500d001b186543bafea010e46d3bdf8051a9f3706a8bc2f945d8e0306"
+      "bytes": 86561,
+      "sha256": "e031a5849cd5319710d02c4c7103114f4c38254d8a2a3d1d783944395b3e3451"
     },
     {
       "file": "assets/mkrate-icon-512.png",
       "format": "PNG",
+      "use": "Desktop/store app icon derivative",
       "dimensions": "512x512",
-      "use": "App icon — standard desktop/store size",
-      "renderedFrom": "assets/mkrate-icon-square.svg",
-      "bytes": 15066,
-      "sha256": "82fa67fb59a027fd62419401485bf6829b6ebaaaa82919f5cb1889fa71cc2feb"
+      "renderedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 52359,
+      "sha256": "fcdf272d4d6e348370092b6a3750c12d8f443c48a1c41b111f57f8265a23edfb"
     },
     {
       "file": "assets/mkrate-icon-256.png",
       "format": "PNG",
+      "use": "Windows/mid-size app icon derivative",
       "dimensions": "256x256",
-      "use": "App icon — Windows .ico / mid-size UI icon source",
-      "renderedFrom": "assets/mkrate-icon-square.svg",
-      "bytes": 7171,
-      "sha256": "0387e6b5497aa28ff6cad3ae8621ba636d115edf747ca721bbe2976383435c3c"
+      "renderedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 23587,
+      "sha256": "c40e6709608f172607c805f37ca915f5d74e8504b94a829ab59a88219063a9fd"
     },
     {
       "file": "assets/mkrate-icon-64.png",
       "format": "PNG",
+      "use": "Small UI/viewer icon derivative",
       "dimensions": "64x64",
-      "use": "Small UI icon (taskbar, list rows, notification icon)",
-      "renderedFrom": "assets/mkrate-icon-square.svg",
-      "bytes": 2114,
-      "sha256": "418e291a46e36719b13b3f104ac0b6132f5f8bc01a9e515409e9830e22c20ab6"
+      "renderedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 4426,
+      "sha256": "2a3c382727b715115775bee9a05fec8fc1d1831e53ac52f4727fb788bf7ebac8"
     },
     {
       "file": "assets/mkrate-favicon-32.png",
       "format": "PNG",
+      "use": "Tiny favicon derivative",
       "dimensions": "32x32",
-      "use": "Browser favicon / tiny UI glyph",
-      "renderedFrom": "assets/mkrate-icon-square.svg",
-      "bytes": 1076,
-      "sha256": "9480e2adb066af08e2105e549f0851341d18557b3dfe29d767ecbe56ccf4a4af"
+      "renderedFrom": "assets/mkrate-icon-1024.png",
+      "bytes": 1354,
+      "sha256": "9fada6d8ed3c775ce1f6f11905b57a3591a19cfcbc817362d6e5e03015c331c0"
     },
     {
       "file": "asset-manifest.json",
@@ -123,115 +128,148 @@
       "use": "This manifest",
       "sourceOf": null,
       "bytes": null,
-      "sha256": "not-applicable-self-referential (hash file contents directly to verify; this field cannot include its own hash)"
+      "sha256": "not-applicable-self-referential"
     },
     {
       "file": "README.md",
       "format": "Markdown",
-      "use": "Asset preview and handoff notes",
-      "sourceOf": null,
-      "bytes": 4155,
-      "sha256": "463289e60c1883c1c97f329b81518a75a01c5eab54b1ef0e97f1c94ad28a0835"
+      "use": "Brand asset source and handoff notes",
+      "bytes": 3198,
+      "sha256": "c653881301f52b1dece24f8090125e5678a7bcc60379ae38890872b0579e8602"
     }
   ],
   "repositoryOutputs": [
     {
       "path": "apps/electron/resources/icon.svg",
       "format": "SVG",
-      "use": "Packaged desktop app-icon source",
-      "derivedFrom": "assets/mkrate-icon-square.svg",
-      "sha256": "f82ec432f9648725090da715eb544b09a5df4bcefb50e2b1090f7a2259bfc74f"
+      "use": "Packaged desktop app-icon SVG wrapper",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
     },
     {
       "path": "apps/electron/resources/icon.png",
       "format": "PNG",
+      "use": "electron-builder Linux/mac fallback icon",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
       "dimensions": "512x512",
-      "use": "electron-builder linux.icon",
-      "derivedFrom": "assets/mkrate-icon-512.png",
-      "sha256": "82fa67fb59a027fd62419401485bf6829b6ebaaaa82919f5cb1889fa71cc2feb"
+      "sha256": "fcdf272d4d6e348370092b6a3750c12d8f443c48a1c41b111f57f8265a23edfb"
     },
     {
       "path": "apps/electron/resources/icon.ico",
       "format": "ICO",
-      "dimensions": "16,24,32,48,64,128,256",
-      "use": "electron-builder win.icon; generated on Linux via ImageMagick from mkrate-icon-1024.png (Lanczos, alpha preserved)",
+      "use": "electron-builder Windows icon; ImageMagick multi-resolution derivative",
       "derivedFrom": "assets/mkrate-icon-1024.png",
-      "sha256": "60ca697828277eb6ec90b312dcf31780f7f9e4c24f827bb8953a4e5cd4030049"
+      "dimensions": "16,24,32,48,64,128,256",
+      "sha256": "e7ee08fa90b15644698531f972cd3ff2a3f3297a2bb6964e60833b4ede4472ec"
     },
     {
       "path": "apps/electron/resources/source.png",
       "format": "PNG",
-      "dimensions": "1024x1024",
-      "use": "Icon-generator source raster",
+      "use": "High-resolution downstream icon-generator source",
       "derivedFrom": "assets/mkrate-icon-1024.png",
-      "sha256": "6fcf43e500d001b186543bafea010e46d3bdf8051a9f3706a8bc2f945d8e0306"
+      "dimensions": "1024x1024",
+      "sha256": "941584a70cef656815c36e6ab48885579f8c428f6847e81edfbf5e7b970b41b6"
     },
     {
       "path": "apps/electron/resources/tool-icons/mkrate-agent.svg",
       "format": "SVG",
-      "dimensions": "64x64",
-      "use": "Tool-icon registry entry for the app (rounded ink plate + white mark + violet hub)",
-      "derivedFrom": "assets/mkrate-icon-square.svg",
-      "sha256": "76048cc9851a62d306a4e03f6af62b18d2f7298dde2cc9105b4f94bbd566f045"
+      "use": "Tool-icon registry entry using the canonical kraken app mark",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
     },
     {
       "path": "apps/electron/src/renderer/assets/mkrate_app_icon.svg",
       "format": "SVG",
-      "use": "Renderer MkrateAppIcon <img> source",
-      "derivedFrom": "assets/mkrate-icon-square.svg",
-      "sha256": "f82ec432f9648725090da715eb544b09a5df4bcefb50e2b1090f7a2259bfc74f"
-    },
-    {
-      "path": "apps/webui/src/public/favicon.svg",
-      "format": "SVG",
-      "use": "WebUI favicon (vector)",
-      "derivedFrom": "assets/mkrate-icon-square.svg",
-      "sha256": "f82ec432f9648725090da715eb544b09a5df4bcefb50e2b1090f7a2259bfc74f"
-    },
-    {
-      "path": "apps/webui/src/public/favicon.ico",
-      "format": "ICO",
-      "dimensions": "16,32",
-      "use": "WebUI favicon (fallback); generated on Linux via ImageMagick from mkrate-favicon-32.png",
-      "derivedFrom": "assets/mkrate-favicon-32.png",
-      "sha256": "85277723d26bb6966ecbcc5fb89605d139c1d9c7db7d9edfdc3515d7d6b0cd3a"
+      "use": "Renderer app icon used by menu/onboarding/splash components",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
     },
     {
       "path": "apps/electron/resources/mkrate-logos/mkrate-app-icon.png",
       "format": "PNG",
+      "use": "In-repo app icon raster copy",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
       "dimensions": "512x512",
-      "use": "In-repo app-icon raster copy",
-      "derivedFrom": "assets/mkrate-icon-512.png",
-      "sha256": "82fa67fb59a027fd62419401485bf6829b6ebaaaa82919f5cb1889fa71cc2feb"
+      "sha256": "fcdf272d4d6e348370092b6a3750c12d8f443c48a1c41b111f57f8265a23edfb"
     },
     {
       "path": "apps/electron/resources/mkrate-logos/mkrate-mark.svg",
       "format": "SVG",
-      "use": "In-repo mark copy",
-      "derivedFrom": "assets/mkrate-mark.svg",
-      "sha256": "9f3485a4f0d0329e939e1619fa6f1bb500e92be4a62e79eb2a8816dd3d3cb0ae"
+      "use": "In-repo full mark copy",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
     },
     {
       "path": "apps/electron/resources/mkrate-logos/mkrate-mark-mono-light.svg",
       "format": "SVG",
-      "use": "In-repo mono-light mark copy",
-      "derivedFrom": "assets/mkrate-mark-mono-light.svg",
-      "sha256": "549ca4f5cc559a62ee3492ae313d6315987cb41a5872f35fcf6410c3f756d3a7"
+      "use": "In-repo white silhouette copy",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "7ca37f5bca02a172be0e607869aa2ed062fa78cca1f484e90eb6eb5bc78b1086"
     },
     {
       "path": "apps/electron/resources/mkrate-logos/mkrate-mark-mono-dark.svg",
       "format": "SVG",
-      "use": "In-repo mono-dark mark copy",
-      "derivedFrom": "assets/mkrate-mark-mono-dark.svg",
-      "sha256": "8d71ee02a4b76a77e70f3fff75c54f7fe371d684757659eabec9949ab2b3ad40"
+      "use": "In-repo ink silhouette copy",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "65b9daefa6c15c7fe82113857b02198187f05bff7dbda53e4b13862de7bb8497"
+    },
+    {
+      "path": "apps/webui/src/public/favicon.svg",
+      "format": "SVG",
+      "use": "WebUI vector-aware favicon wrapper",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "sha256": "baa9295cba00ea017d27093d9116b2bbbcb9031a051dfee2323b34c8ac2e2344"
+    },
+    {
+      "path": "apps/webui/src/public/favicon.ico",
+      "format": "ICO",
+      "use": "WebUI 16/32 favicon fallback",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "dimensions": "16,32",
+      "sha256": "9e8286679427057d49cabd6f31f001fb1e59167e26666ac406588ffc5438cf3d"
+    },
+    {
+      "path": "apps/webui/src/public/apple-touch-icon.png",
+      "format": "PNG",
+      "use": "WebUI Apple touch icon",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "dimensions": "180x180",
+      "sha256": "092cebd9aee2ca9576c903b78df87cbc056a0877bfeff8689aa5afbb6e54bd70"
+    },
+    {
+      "path": "apps/webui/src/public/icon-192.png",
+      "format": "PNG",
+      "use": "WebUI PWA icon",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "dimensions": "192x192",
+      "sha256": "8151a26573dea1b9049e9f2b0774381d442dca758988cc985b5b0ee6cf83e4a8"
+    },
+    {
+      "path": "apps/webui/src/public/icon-512.png",
+      "format": "PNG",
+      "use": "WebUI PWA icon",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "dimensions": "512x512",
+      "sha256": "fcdf272d4d6e348370092b6a3750c12d8f443c48a1c41b111f57f8265a23edfb"
+    },
+    {
+      "path": "apps/viewer/public/mkrate-icon.png",
+      "format": "PNG",
+      "use": "Standalone session-viewer header icon",
+      "derivedFrom": "assets/mkrate-icon-1024.png",
+      "dimensions": "64x64",
+      "sha256": "2a3c382727b715115775bee9a05fec8fc1d1831e53ac52f4727fb788bf7ebac8"
     }
   ],
+  "crossRepositoryOutputs": {
+    "mkrate-mobile": "Synchronized docs/assets source plus Expo/adaptive derivatives; verified in the mobile repository."
+  },
   "deferred": {
     "macos": [
       "apps/electron/resources/icon.icns",
       "apps/electron/resources/Assets.car",
       "apps/electron/resources/icon.icon/"
     ],
-    "note": "macOS .icns / Assets.car / icon.icon removed (old Craft assets) and NOT regenerated; macOS production packaging blocked until native generation on macOS."
+    "note": "macOS native containers are not regenerated on Linux; production macOS packaging remains blocked until native generation/validation."
   }
 }

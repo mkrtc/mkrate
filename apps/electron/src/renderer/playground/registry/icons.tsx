@@ -9,7 +9,7 @@ export const iconComponents: ComponentEntry[] = [
     id: 'mkrate-logo',
     name: 'MkrateLogo',
     category: 'Icons',
-    description: 'Mkrate five-node "M" graph mark, full brand color',
+    description: 'Canonical Mkrate kraken app icon',
     component: MkrateLogo,
     props: [
       {
@@ -29,7 +29,7 @@ export const iconComponents: ComponentEntry[] = [
     id: 'mkrate-symbol',
     name: 'MkrateSymbol',
     category: 'Icons',
-    description: 'Mkrate five-node "M" graph mark, single-color (inherits currentColor)',
+    description: 'Compact canonical Mkrate kraken app icon',
     component: MkrateSymbol,
     props: [
       {

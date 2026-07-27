@@ -1,7 +1,8 @@
 # Visual Asset Inventory & Rebrand Closure (Task E)
 
-> Status: **Task E complete.** Every Craft product logo/icon/brand image in the working tree
-> has been replaced with Mkrate brand assets or removed. macOS native icon containers
+> Status: **updated 2026-07-27 for the approved Mkrate kraken logo.** Every current
+> desktop/mobile-facing logo source and Linux/Windows/WebUI derivative now comes from the
+> exact approved 1024×1024 PNG; the former five-node graph mark is retired. macOS native icon containers
 > (`.icns`, `Assets.car`) are intentionally **not** regenerated in this phase — macOS
 > production packaging is **blocked/deferred** until they are produced natively on macOS.
 > Canonical brand sources, guidelines, license, and the asset manifest live in
@@ -9,8 +10,8 @@
 
 ## Brand source integration
 
-- `docs/brand/` — canonical brand home: `README.md`, `brand-guidelines.md`,
-  `asset-manifest.json`, and `assets/` (all mark/wordmark/lockup/icon SVGs + rendered PNGs).
+- `docs/brand/` — canonical brand home. `assets/mkrate-icon-1024.png` is the exact
+  user-approved source raster; SVG wrappers, wordmark/lockup sources, and platform PNGs are catalogued in `asset-manifest.json`.
 - `apps/electron/resources/mkrate-logos/` — in-repo raster/vector copies (replaces the deleted
   `craft-logos/`).
 
@@ -61,12 +62,12 @@ background must be produced before any macOS DMG is shipped.
 
 | Old | New | Notes |
 |---|---|---|
-| `icons/CraftAgentsLogo.tsx` (`CraftAgentsLogo`) | `icons/MkrateLogo.tsx` (`MkrateLogo`) | Full-color five-node "M" graph mark. |
-| `icons/CraftAgentsSymbol.tsx` (`CraftAgentsSymbol`) | `icons/MkrateSymbol.tsx` (`MkrateSymbol`) | Single-color mark (`currentColor`, inherits `text-accent`). |
+| `icons/CraftAgentsLogo.tsx` (`CraftAgentsLogo`) | `icons/MkrateLogo.tsx` (`MkrateLogo`) | Canonical kraken app icon. |
+| `icons/CraftAgentsSymbol.tsx` (`CraftAgentsSymbol`) | `icons/MkrateSymbol.tsx` (`MkrateSymbol`) | Compact canonical kraken app icon. |
 | `icons/CraftAppIcon.tsx` (`CraftAppIcon`) | `icons/MkrateAppIcon.tsx` (`MkrateAppIcon`) | `<img>` of `mkrate_app_icon.svg`. |
-| inline `CraftAgentLogo` in `apps/viewer/src/components/Header.tsx` | inline `MkrateLogo` | Art swapped to the Mkrate mark; brand blue. |
-| inline `CraftAgentLogo` in `packages/ui/src/components/chat/SessionViewer.tsx` | inline `MkrateLogo` | Art swapped to the Mkrate mark; brand blue. |
-| `packages/shared/src/branding.ts` (`CRAFT_LOGO`/`CRAFT_LOGO_HTML`) | `MKRATE_LOGO`/`MKRATE_LOGO_HTML` | ASCII "M" graph mark; single consumer `auth/callback-page.ts` updated. |
+| inline `CraftAgentLogo` in `apps/viewer/src/components/Header.tsx` | `MkrateLogo` | Loads the canonical kraken derivative from viewer public assets. |
+| inline `CraftAgentLogo` in `packages/ui/src/components/chat/SessionViewer.tsx` | `MkrateLogo` | Uses the embedded canonical kraken derivative. |
+| `packages/shared/src/branding.ts` (`CRAFT_LOGO`/`CRAFT_LOGO_HTML`) | `MKRATE_LOGO_DATA_URI` | Standalone OAuth callback now embeds the canonical kraken derivative; retired ASCII graph removed. |
 | `playground/registry/icons.tsx` | updated | Ids/descriptions rebranded (internal design playground). |
 
 Consumers updated: `SplashScreen`, onboarding (`WelcomeStep`, `ProviderSelectStep`,
@@ -77,7 +78,7 @@ Consumers updated: `SplashScreen`, onboarding (`WelcomeStep`, `ProviderSelectSte
 
 | File | Status |
 |---|---|
-| `apps/webui/src/public/favicon.svg` | **Replaced** → Mkrate app-icon (dark plate, white mark, violet hub). |
+| `apps/webui/src/public/favicon.svg` | **Replaced** → approved kraken app icon. |
 | `apps/webui/src/public/favicon.ico` | **Regenerated** (16+32 Mkrate). |
 
 ## Preserved (not visual identity — do not "rebrand")

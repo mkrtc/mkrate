@@ -4,7 +4,7 @@
  * in both the callback server and the playground preview.
  */
 
-import { MKRATE_LOGO_HTML } from '../branding.ts';
+import { MKRATE_LOGO_DATA_URI } from '../branding.ts';
 
 export type AppType = 'terminal' | 'electron';
 
@@ -60,15 +60,10 @@ export function generateCallbackPage(options: {
     }
 
     .logo {
-      /* Purple accent: oklch(0.62 0.13 293) */
-      color: #8b5fb3;
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
-      font-size: 6px;
-      line-height: 1;
-      white-space: pre;
-      /* Negative letter-spacing to close gaps between block characters */
-      letter-spacing: -0.05em;
-      /* 48px above the card */
+      display: block;
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
       margin-bottom: 48px;
     }
 
@@ -136,10 +131,6 @@ export function generateCallbackPage(options: {
       body {
         background-color: #1a1a1a;
       }
-      .logo {
-        /* Brighter purple in dark mode: oklch(0.68 0.13 293) */
-        color: #a882c9;
-      }
       .card {
         ${isSuccess
           ? `/* Success state dark - green tinted */
@@ -170,7 +161,7 @@ export function generateCallbackPage(options: {
 </head>
 <body>
   <div class="content">
-    <pre class="logo">${MKRATE_LOGO_HTML}</pre>
+    <img class="logo" src="${MKRATE_LOGO_DATA_URI}" alt="Mkrate">
     <div class="card">
       <div class="status">${statusMessage}</div>
     </div>

@@ -5,9 +5,7 @@ interface MkrateAppIconProps {
   size?: number
 }
 
-/**
- * MkrateAppIcon - Displays the Mkrate app icon (ink squircle, white mark, violet hub).
- */
+/** Displays the canonical Mkrate kraken app icon. */
 export function MkrateAppIcon({ className, size = 64 }: MkrateAppIconProps) {
   return (
     <img

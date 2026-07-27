@@ -11,6 +11,7 @@
  * Text-based on purpose: runs without installing workspace dependencies.
  */
 import { describe, expect, it } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -52,6 +53,75 @@ describe('Mkrate locale product identity', () => {
 
       expect(craftKeys).toEqual(OFFICIAL_CRAFT_LOCALE_KEYS)
     }
+  })
+})
+
+describe('Mkrate canonical kraken identity', () => {
+  const canonicalIconPath = join(
+    repoRoot,
+    'docs',
+    'brand',
+    'assets',
+    'mkrate-icon-1024.png',
+  )
+
+  it('pins the exact user-approved 1024px source raster', () => {
+    const digest = createHash('sha256')
+      .update(readFileSync(canonicalIconPath))
+      .digest('hex')
+    expect(digest).toBe(
+      '941584a70cef656815c36e6ab48885579f8c428f6847e81edfbf5e7b970b41b6',
+    )
+  })
+
+  it('verifies every canonical and repository-output hash in the asset manifest', () => {
+    const manifest = JSON.parse(
+      read(repoRoot, 'docs', 'brand', 'asset-manifest.json'),
+    ) as {
+      files: Array<{ file: string; sha256: string }>
+      repositoryOutputs: Array<{ path: string; sha256: string }>
+    }
+    const digest = (path: string) =>
+      createHash('sha256').update(readFileSync(path)).digest('hex')
+
+    for (const entry of manifest.files) {
+      if (entry.file === 'asset-manifest.json') continue
+      expect(digest(join(repoRoot, 'docs', 'brand', entry.file))).toBe(entry.sha256)
+    }
+    for (const entry of manifest.repositoryOutputs) {
+      expect(digest(join(repoRoot, entry.path))).toBe(entry.sha256)
+    }
+  })
+
+  it('uses the canonical icon asset and retires the old graph path in renderer symbols', () => {
+    for (const file of ['MkrateLogo.tsx', 'MkrateSymbol.tsx']) {
+      const source = read(
+        electronDir,
+        'src',
+        'renderer',
+        'components',
+        'icons',
+        file,
+      )
+      expect(source).toContain('mkrate_app_icon.svg')
+      expect(source).not.toContain('M7 25 L7 7 L16 18 L25 7 L25 25')
+    }
+  })
+
+  it('embeds the canonical kraken icon in standalone OAuth callbacks', () => {
+    const branding = read(repoRoot, 'packages', 'shared', 'src', 'branding.ts')
+    const callback = read(
+      repoRoot,
+      'packages',
+      'shared',
+      'src',
+      'auth',
+      'callback-page.ts',
+    )
+    expect(branding).toContain('MKRATE_LOGO_DATA_URI')
+    expect(branding).not.toContain('MKRATE_LOGO_HTML')
+    expect(callback).toContain('<img class="logo"')
+    expect(callback).not.toContain('<pre class="logo"')
   })
 })
 
