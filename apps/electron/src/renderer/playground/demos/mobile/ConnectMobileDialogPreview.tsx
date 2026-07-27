@@ -1,22 +1,29 @@
 import * as React from 'react'
-import { ConnectMobileDialog } from '../../../components/mobile/ConnectMobileDialog'
+import {
+  ConnectMobileDialog,
+  type MobilePairingMethod,
+} from '../../../components/mobile/ConnectMobileDialog'
 
 export interface ConnectMobileDialogPreviewProps {
+  method: MobilePairingMethod
   expiresInSeconds: number
 }
 
 export function ConnectMobileDialogPreview({
+  method: methodPreset,
   expiresInSeconds,
 }: ConnectMobileDialogPreviewProps) {
   const [open, setOpen] = React.useState(true)
+  const [method, setMethod] = React.useState<MobilePairingMethod>(methodPreset)
   const [generation, setGeneration] = React.useState(1)
   const [expiresAt, setExpiresAt] = React.useState(() => expiryFromNow(expiresInSeconds))
 
   React.useEffect(() => {
     setOpen(true)
+    setMethod(methodPreset)
     setGeneration((value) => value + 1)
     setExpiresAt(expiryFromNow(expiresInSeconds))
-  }, [expiresInSeconds])
+  }, [methodPreset, expiresInSeconds])
 
   const refresh = React.useCallback(() => {
     setGeneration((value) => value + 1)
@@ -28,7 +35,10 @@ export function ConnectMobileDialogPreview({
       <ConnectMobileDialog
         open={open}
         onOpenChange={setOpen}
+        method={method}
+        onMethodChange={setMethod}
         qrValue={`mkrate-ui-preview://connect-mobile/${generation}`}
+        manualCode="ABCD-2345"
         expiresAt={expiresAt}
         onRefresh={refresh}
         preview

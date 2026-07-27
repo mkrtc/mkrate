@@ -6,11 +6,23 @@ export const mobileComponents: ComponentEntry[] = [
     id: 'mobile-connect-dialog',
     name: 'Connect Mkrate Mobile dialog',
     category: 'Mobile',
-    description: 'UI-only desktop QR pairing entry. Uses a deliberately non-canonical preview QR and no backend.',
+    description: 'UI-only desktop QR/manual pairing entry. Uses non-secret preview material and no backend.',
     component: ConnectMobileDialogPreview,
     layout: 'centered',
     previewOverflow: 'visible',
     props: [
+      {
+        name: 'method',
+        description: 'Initially selected pairing input method.',
+        control: {
+          type: 'select',
+          options: [
+            { label: 'QR code', value: 'qr' },
+            { label: 'Manual code', value: 'manual' },
+          ],
+        },
+        defaultValue: 'qr',
+      },
       {
         name: 'expiresInSeconds',
         description: 'Seconds remaining before the preview hides its QR.',
@@ -20,16 +32,20 @@ export const mobileComponents: ComponentEntry[] = [
     ],
     variants: [
       {
-        name: 'Active code',
-        props: { expiresInSeconds: 115 },
+        name: 'Active QR',
+        props: { method: 'qr', expiresInSeconds: 115 },
       },
       {
-        name: 'Near expiry',
-        props: { expiresInSeconds: 8 },
+        name: 'Active manual code',
+        props: { method: 'manual', expiresInSeconds: 115 },
+      },
+      {
+        name: 'Manual code near expiry',
+        props: { method: 'manual', expiresInSeconds: 8 },
       },
       {
         name: 'Expired',
-        props: { expiresInSeconds: 0 },
+        props: { method: 'manual', expiresInSeconds: 0 },
       },
     ],
   },

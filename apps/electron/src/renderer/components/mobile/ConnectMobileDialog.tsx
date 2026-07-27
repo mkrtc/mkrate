@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Clock3, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
+import { Clock3, Keyboard, QrCode, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -11,10 +11,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+export type MobilePairingMethod = 'qr' | 'manual'
+
 export interface ConnectMobileDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  method: MobilePairingMethod
+  onMethodChange: (method: MobilePairingMethod) => void
   qrValue: string
+  manualCode: string
   expiresAt: number
   onRefresh: () => void
   /** Playground-only disclosure. Never use this to represent a real pairing ticket. */
@@ -24,7 +29,10 @@ export interface ConnectMobileDialogProps {
 export function ConnectMobileDialog({
   open,
   onOpenChange,
+  method,
+  onMethodChange,
   qrValue,
+  manualCode,
   expiresAt,
   onRefresh,
   preview = false,
@@ -42,6 +50,7 @@ export function ConnectMobileDialog({
 
   const expired = secondsLeft === 0
   const countdown = formatCountdown(secondsLeft)
+  const manual = method === 'manual'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,49 +74,25 @@ export function ConnectMobileDialog({
 
         <div className="flex flex-col items-center gap-5 px-6 py-5">
           {expired ? (
-            <div className="flex min-h-[276px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 px-8 text-center">
-              <div className="flex size-12 items-center justify-center rounded-full bg-foreground/5 text-muted-foreground">
-                <Clock3 className="size-5" aria-hidden="true" />
-              </div>
-              <p className="mt-4 text-base font-semibold">{t('dialog.mobileConnect.expired')}</p>
-              <p className="mt-1 max-w-[290px] text-sm leading-5 text-muted-foreground">
-                {t('dialog.mobileConnect.expiredDescription')}
-              </p>
-              <Button className="mt-5" onClick={onRefresh}>
-                <RefreshCw className="size-4" aria-hidden="true" />
-                {t('dialog.mobileConnect.generateNew')}
-              </Button>
-            </div>
+            <ExpiredState onRefresh={onRefresh} />
+          ) : manual ? (
+            <ManualCodeState code={manualCode} countdown={countdown} />
           ) : (
-            <>
-              <div className="relative rounded-2xl border border-border/70 bg-white p-4 shadow-minimal">
-                <QRCodeSVG
-                  value={qrValue}
-                  size={240}
-                  level="M"
-                  bgColor="#FFFFFF"
-                  fgColor="#0A0F1F"
-                  title={t('dialog.mobileConnect.qrLabel')}
-                />
-                <div className="pointer-events-none absolute -left-px -top-px size-7 rounded-tl-2xl border-l-2 border-t-2 border-primary" />
-                <div className="pointer-events-none absolute -right-px -top-px size-7 rounded-tr-2xl border-r-2 border-t-2 border-primary" />
-                <div className="pointer-events-none absolute -bottom-px -left-px size-7 rounded-bl-2xl border-b-2 border-l-2 border-primary" />
-                <div className="pointer-events-none absolute -bottom-px -right-px size-7 rounded-br-2xl border-b-2 border-r-2 border-primary" />
-              </div>
-
-              <div className="flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground">
-                <Clock3 className="size-3.5" aria-hidden="true" />
-                <span>{t('dialog.mobileConnect.expiresIn', { time: countdown })}</span>
-              </div>
-            </>
+            <QrState value={qrValue} countdown={countdown} />
           )}
 
-          <div className="grid w-full grid-cols-[28px_1fr] gap-x-3 gap-y-3 rounded-xl border border-border/60 bg-foreground/[0.02] p-4 text-sm">
-            <StepNumber>1</StepNumber>
-            <p className="self-center text-foreground/80">{t('dialog.mobileConnect.stepOpen')}</p>
-            <StepNumber>2</StepNumber>
-            <p className="self-center text-foreground/80">{t('dialog.mobileConnect.stepScan')}</p>
-          </div>
+          {!expired && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onMethodChange(manual ? 'qr' : 'manual')}
+            >
+              {manual ? <QrCode aria-hidden="true" /> : <Keyboard aria-hidden="true" />}
+              {t(manual ? 'dialog.mobileConnect.backToQr' : 'dialog.mobileConnect.enterManually')}
+            </Button>
+          )}
+
+          <Instructions method={method} />
 
           <div className="flex w-full items-start gap-3 rounded-xl bg-emerald-500/[0.08] px-4 py-3 text-sm text-foreground/75">
             <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
@@ -128,6 +113,102 @@ export function ConnectMobileDialog({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function QrState({ value, countdown }: { value: string; countdown: string }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      <div className="relative rounded-2xl border border-border/70 bg-white p-4 shadow-minimal">
+        <QRCodeSVG
+          value={value}
+          size={240}
+          level="M"
+          bgColor="#FFFFFF"
+          fgColor="#0A0F1F"
+          title={t('dialog.mobileConnect.qrLabel')}
+        />
+        <div className="pointer-events-none absolute -left-px -top-px size-7 rounded-tl-2xl border-l-2 border-t-2 border-primary" />
+        <div className="pointer-events-none absolute -right-px -top-px size-7 rounded-tr-2xl border-r-2 border-t-2 border-primary" />
+        <div className="pointer-events-none absolute -bottom-px -left-px size-7 rounded-bl-2xl border-b-2 border-l-2 border-primary" />
+        <div className="pointer-events-none absolute -bottom-px -right-px size-7 rounded-br-2xl border-b-2 border-r-2 border-primary" />
+      </div>
+      <Countdown value={countdown} />
+    </>
+  )
+}
+
+function ManualCodeState({ code, countdown }: { code: string; countdown: string }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      <div className="flex min-h-[276px] w-full flex-col items-center justify-center rounded-2xl border border-border/70 bg-foreground/[0.02] px-8 text-center">
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Keyboard className="size-5" aria-hidden="true" />
+        </div>
+        <p className="mt-4 text-base font-semibold">{t('dialog.mobileConnect.manualTitle')}</p>
+        <p className="mt-1 max-w-[330px] text-sm leading-5 text-muted-foreground">
+          {t('dialog.mobileConnect.manualDescription')}
+        </p>
+        <code
+          aria-label={t('dialog.mobileConnect.manualCodeLabel', { code })}
+          className="mt-5 rounded-xl border border-border bg-background px-6 py-4 font-mono text-2xl font-bold tracking-[0.22em] text-foreground shadow-minimal"
+        >
+          {code}
+        </code>
+      </div>
+      <Countdown value={countdown} />
+    </>
+  )
+}
+
+function ExpiredState({ onRefresh }: { onRefresh: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex min-h-[276px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 px-8 text-center">
+      <div className="flex size-12 items-center justify-center rounded-full bg-foreground/5 text-muted-foreground">
+        <Clock3 className="size-5" aria-hidden="true" />
+      </div>
+      <p className="mt-4 text-base font-semibold">{t('dialog.mobileConnect.expired')}</p>
+      <p className="mt-1 max-w-[290px] text-sm leading-5 text-muted-foreground">
+        {t('dialog.mobileConnect.expiredDescription')}
+      </p>
+      <Button className="mt-5" onClick={onRefresh}>
+        <RefreshCw className="size-4" aria-hidden="true" />
+        {t('dialog.mobileConnect.generateNew')}
+      </Button>
+    </div>
+  )
+}
+
+function Countdown({ value }: { value: string }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+      <Clock3 className="size-3.5" aria-hidden="true" />
+      <span>{t('dialog.mobileConnect.expiresIn', { time: value })}</span>
+    </div>
+  )
+}
+
+function Instructions({ method }: { method: MobilePairingMethod }) {
+  const { t } = useTranslation()
+  return (
+    <div className="grid w-full grid-cols-[28px_1fr] gap-x-3 gap-y-3 rounded-xl border border-border/60 bg-foreground/[0.02] p-4 text-sm">
+      <StepNumber>1</StepNumber>
+      <p className="self-center text-foreground/80">{t('dialog.mobileConnect.stepOpen')}</p>
+      <StepNumber>2</StepNumber>
+      <p className="self-center text-foreground/80">
+        {t(method === 'manual' ? 'dialog.mobileConnect.stepChooseManual' : 'dialog.mobileConnect.stepScan')}
+      </p>
+      {method === 'manual' && (
+        <>
+          <StepNumber>3</StepNumber>
+          <p className="self-center text-foreground/80">{t('dialog.mobileConnect.stepEnterCode')}</p>
+        </>
+      )}
+    </div>
   )
 }
 
