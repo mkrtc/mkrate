@@ -3,3 +3,8 @@ export * from './bridge-transport.ts';
 export * from './bridge-connector-service.ts';
 export * from './bridge-pairing-session.ts';
 export * from './bridge-pairing-lease.ts';
+export * from './bridge-session-adapter.ts';
+export * from './bridge-result-cache.ts';
+export * from './bridge-event-projector.ts';
+export * from './bridge-replay-window.ts';
+export * from './bridge-snapshot.ts';
