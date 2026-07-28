@@ -307,6 +307,7 @@
         "@craft-agent/core": "workspace:*",
         "@craft-agent/shared": "workspace:*",
         "@earendil-works/pi-ai": "0.80.6",
+        "@mkrate/bridge-protocol": "file:../../vendor/mkrate-bridge-protocol-1.0.0.tgz",
         "jose": "^6.0.0",
         "sharp": "0.34.5",
         "ws": "^8.19.0",
@@ -942,6 +943,8 @@
 
     "@mixmark-io/domino": ["@mixmark-io/domino@2.2.0", "", {}, "sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw=="],
 
+    "@mkrate/bridge-protocol": ["@mkrate/bridge-protocol@../../vendor/mkrate-bridge-protocol-1.0.0.tgz", { "dependencies": { "@noble/hashes": "2.2.0", "zod": "4.3.5" } }, "sha512-Jt4LfO06MsMZovID2MZzbdsClwWAe/iPk8Kil6Yu456T0CNyYh8BUZMbirxQN5UlCeW34OajqCXJPEis6Lc01w=="],
+
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
 
     "@napi-rs/canvas": ["@napi-rs/canvas@0.1.88", "", { "optionalDependencies": { "@napi-rs/canvas-android-arm64": "0.1.88", "@napi-rs/canvas-darwin-arm64": "0.1.88", "@napi-rs/canvas-darwin-x64": "0.1.88", "@napi-rs/canvas-linux-arm-gnueabihf": "0.1.88", "@napi-rs/canvas-linux-arm64-gnu": "0.1.88", "@napi-rs/canvas-linux-arm64-musl": "0.1.88", "@napi-rs/canvas-linux-riscv64-gnu": "0.1.88", "@napi-rs/canvas-linux-x64-gnu": "0.1.88", "@napi-rs/canvas-linux-x64-musl": "0.1.88", "@napi-rs/canvas-win32-arm64-msvc": "0.1.88", "@napi-rs/canvas-win32-x64-msvc": "0.1.88" } }, "sha512-/p08f93LEbsL5mDZFQ3DBxcPv/I4QG9EDYRRq1WNlCOXVfAHBTHMSVMwxlqG/AtnSfUr9+vgfN7MKiyDo0+Weg=="],
@@ -967,6 +970,8 @@
     "@napi-rs/canvas-win32-arm64-msvc": ["@napi-rs/canvas-win32-arm64-msvc@0.1.88", "", { "os": "win32", "cpu": "arm64" }, "sha512-qcIFfEgHrchyYqRrxsCeTQgpJZ/GqHiqPcU/Fvw/ARVlQeDX1VyFH+X+0gCR2tca6UJrq96vnW+5o7buCq+erA=="],
 
     "@napi-rs/canvas-win32-x64-msvc": ["@napi-rs/canvas-win32-x64-msvc@0.1.88", "", { "os": "win32", "cpu": "x64" }, "sha512-ROVqbfS4QyZxYkqmaIBBpbz/BQvAR+05FXM5PAtTYVc0uyY8Y4BHJSMdGAaMf6TdIVRsQsiq+FG/dH9XhvWCFQ=="],
+
+    "@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
 
     "@nodable/entities": ["@nodable/entities@2.1.0", "", {}, "sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA=="],
 

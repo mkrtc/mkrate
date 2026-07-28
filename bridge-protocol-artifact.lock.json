@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "package": "@mkrate/bridge-protocol",
+  "version": "1.0.0",
+  "artifact": "vendor/mkrate-bridge-protocol-1.0.0.tgz",
+  "sha256": "de927a48662956ecc2bebd941332de736aa9e639e7430588bb0221a289edcf20",
+  "source": {
+    "repository": "https://github.com/mkrtc/mkrate-relay",
+    "commit": "513075333ae1b0eceeca7aa4c5fe8d6519dd6d72",
+    "protocolEpoch": "mkrate-bridge/v1"
+  },
+  "status": "local-vertical-slice-only-not-published"
+}
