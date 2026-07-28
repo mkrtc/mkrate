@@ -212,7 +212,8 @@ export class BridgePairingLease {
   }
 
   #handlePairingRequest(message: PairingRequestMessage): void {
-    this.#session?.acceptRequest(message);
+    const session = this.#session
+    if (session?.acceptRequest(message)) this.#onSessionChange?.(session)
   }
 
   #closeLocal(reason: PairingCloseReason): void {

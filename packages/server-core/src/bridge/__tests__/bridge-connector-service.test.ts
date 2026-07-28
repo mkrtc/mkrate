@@ -280,7 +280,29 @@ describe('BridgeConnectorService correlation and credential lifecycle', () => {
     });
     await rotation;
     expect(h.credentials.value).toBe(ROTATED_TOKEN);
+    expect(h.transport.sent.at(-1)).toMatchObject({
+      type: 'desktop.token.rotate-ack',
+      deploymentId: DEPLOYMENT_ID,
+      instanceId: INSTANCE_ID,
+      rotationRequestId: rotate.requestId,
+    });
     expect(h.service.state).toBe('authenticated');
+
+    const lostAck = harness({ identity: true, credential: INSTANCE_TOKEN });
+    await driveToAuth(lostAck);
+    const lostAckRotation = lostAck.service.rotateInstanceToken();
+    const lostAckRotate = await waitFor(lostAck, 'desktop.token.rotate');
+    lostAck.transport.failNextSend = true;
+    lostAck.transport.emit({
+      type: 'desktop.token.rotated', deploymentId: DEPLOYMENT_ID, instanceId: INSTANCE_ID,
+      instanceToken: ROTATED_TOKEN, tokenExpiresAtMs: 200_000,
+      previousTokenGraceEndsAtMs: Date.now() + 300_000,
+      requestId: lostAckRotate.requestId, version: 1,
+    });
+    await lostAckRotation;
+    expect(lostAck.credentials.value).toBe(ROTATED_TOKEN);
+    expect(lostAck.service.state).toBe('authenticated');
+    expect(lostAck.records.some(record => record.event === 'transport.send-failed' && record.metadata.operation === 'rotate')).toBe(true);
 
     const failed = harness({ identity: true, credential: INSTANCE_TOKEN });
     await driveToAuth(failed);
@@ -295,6 +317,7 @@ describe('BridgeConnectorService correlation and credential lifecycle', () => {
     });
     await failedRotation;
     expect(failed.credentials.value).toBe(INSTANCE_TOKEN);
+    expect(failed.transport.sent.some(message => message.type === 'desktop.token.rotate-ack')).toBe(false);
     expect(failed.service.state).toBe('credential-write-failed');
     expect(failed.transport.connected).toBe(false);
     expect(failed.service.retryAfterCredentialWriteFailure()).toBe(true);
@@ -302,6 +325,50 @@ describe('BridgeConnectorService correlation and credential lifecycle', () => {
     failed.transport.emit(accept(recoveryNegotiate.requestId));
     const recoveryAuth = failed.transport.sent.filter((m) => m.type === 'desktop.auth').at(-1)! as Extract<DesktopClientMessage, { type: 'desktop.auth' }>;
     expect(recoveryAuth.instanceToken).toBe(INSTANCE_TOKEN);
+  });
+
+  test('handles finite duplicate rotation delivery as explicit recovery and uses fresh correlation IDs', async () => {
+    const h = harness({ identity: true, credential: INSTANCE_TOKEN });
+    await driveToAuth(h);
+    const duplicate = h.service.rotateInstanceToken();
+    const first = await waitFor(h, 'desktop.token.rotate');
+    h.transport.emit({
+      type: 'bridge.error', requestId: first.requestId,
+      code: BRIDGE_ERROR_CODES.credentialDeliveryUnknown,
+      retryable: false, retryAfterMs: null, version: BRIDGE_PROTOCOL_VERSION,
+    });
+    await expect(duplicate).rejects.toThrow('bridge');
+    expect(h.service.state).toBe('credential-delivery-unknown');
+    expect(h.credentials.value).toBe(INSTANCE_TOKEN);
+    expect(h.transport.sent.some(message => message.type === 'desktop.token.rotate-ack')).toBe(false);
+
+    h.transport.close();
+    h.transport.reopen();
+    await flush();
+    const reconnectNegotiate = h.transport.sent.filter((message): message is Extract<DesktopClientMessage, { type: 'deployment.negotiate' }> => message.type === 'deployment.negotiate').at(-1)!;
+    h.transport.emit(accept(reconnectNegotiate.requestId));
+    await flush();
+    const reconnectAuth = h.transport.sent.filter((message): message is Extract<DesktopClientMessage, { type: 'desktop.auth' }> => message.type === 'desktop.auth').at(-1)!;
+    h.transport.emit(authenticated(reconnectAuth.requestId));
+    await flush();
+    expect(h.service.state).toBe('credential-delivery-unknown');
+
+    const recovery = h.service.rotateInstanceToken();
+    await flush();
+    const requests = h.transport.sent.filter((message): message is Extract<DesktopClientMessage, { type: 'desktop.token.rotate' }> => message.type === 'desktop.token.rotate');
+    expect(requests).toHaveLength(2);
+    const fresh = requests.at(-1)!;
+    expect(fresh.requestId).not.toBe(first.requestId);
+    expect(fresh.idempotencyKey).not.toBe(first.idempotencyKey);
+    h.transport.emit({
+      type: 'desktop.token.rotated', deploymentId: DEPLOYMENT_ID, instanceId: INSTANCE_ID,
+      instanceToken: ROTATED_TOKEN, tokenExpiresAtMs: 200_000,
+      previousTokenGraceEndsAtMs: Date.now() + 300_000,
+      requestId: fresh.requestId, version: BRIDGE_PROTOCOL_VERSION,
+    });
+    await recovery;
+    expect(h.service.state).toBe('authenticated');
+    expect(h.credentials.value).toBe(ROTATED_TOKEN);
   });
 
   test('does not leak tokens or wire frames through state, profile, or metadata logs', async () => {

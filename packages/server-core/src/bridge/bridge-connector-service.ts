@@ -34,6 +34,7 @@ export type BridgeConnectorState =
   | 'authenticating'
   | 'authenticated'
   | 'rotating'
+  | 'credential-delivery-unknown'
   | 'credential-write-failed'
   | 'terminal';
 
@@ -198,6 +199,7 @@ export class BridgeConnectorService {
   #enrollmentSubmitted = false;
   #previousCredential: { token: string; graceEndsAtMs: number; attempted: boolean } | null = null;
   #authTokenOverride: string | null = null;
+  #rotationRecoveryRequired = false;
 
   constructor(options: BridgeConnectorServiceOptions) {
     this.#profile = { ...options.profile };
@@ -299,7 +301,9 @@ export class BridgeConnectorService {
   }
 
   async rotateInstanceToken(): Promise<void> {
-    this.#requireAuthenticated();
+    if (!this.#authenticated || (this.#state !== 'authenticated' && this.#state !== 'credential-delivery-unknown')) {
+      throw new Error('Bridge Desktop is not authenticated for token rotation');
+    }
     const currentToken = await this.#credentials.getBridgeInstanceToken(this.#profile.profileId);
     if (!currentToken || !this.#profile.deploymentId || !this.#profile.instanceId) {
       this.#terminal('credential-missing');
@@ -329,6 +333,18 @@ export class BridgeConnectorService {
           this.#terminal(terminal);
           return;
         }
+        if (error.bridgeCode === BRIDGE_ERROR_CODES.credentialDeliveryUnknown) {
+          this.#rotationRecoveryRequired = true;
+          this.#logger.log('warn', 'transport.send-failed', { operation: 'rotate' });
+          this.#setState('credential-delivery-unknown');
+          throw error;
+        }
+      }
+      if (error instanceof BridgeRequestError && (error.kind === 'transport' || error.kind === 'timeout')) {
+        this.#rotationRecoveryRequired = true;
+        this.#logger.log('warn', 'transport.send-failed', { operation: 'rotate' });
+        this.#setState('credential-delivery-unknown');
+        throw error;
       }
       if (this.#authenticated) this.#setState('authenticated');
       throw error;
@@ -349,6 +365,21 @@ export class BridgeConnectorService {
       this.#setState('credential-write-failed');
       return;
     }
+    try {
+      await this.#transport.send({
+        type: 'desktop.token.rotate-ack',
+        deploymentId: this.#profile.deploymentId,
+        instanceId: this.#profile.instanceId,
+        rotationRequestId: requestId,
+        requestId: this.#id(),
+        version: BRIDGE_PROTOCOL_VERSION,
+      });
+    } catch {
+      // The new token is already durable. A lost ack intentionally leaves the
+      // previous token valid only until Bridge grace expiry.
+      this.#logger.log('warn', 'transport.send-failed', { operation: 'rotate' });
+    }
+    this.#rotationRecoveryRequired = false;
     this.#setState('authenticated');
   }
 
@@ -622,7 +653,7 @@ export class BridgeConnectorService {
       if (generation !== this.#handshakeGeneration || this.#stopping) return;
       this.#authTokenOverride = null;
       this.#setAuthenticated(true);
-      this.#setState('authenticated');
+      this.#setState(this.#rotationRecoveryRequired ? 'credential-delivery-unknown' : 'authenticated');
     } catch (error) {
       if (error instanceof BridgeRequestError && error.kind === 'bridge') {
         const terminal = isTerminalAuthCode(error.bridgeCode ?? '');

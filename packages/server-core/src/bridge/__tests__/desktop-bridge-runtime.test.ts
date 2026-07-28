@@ -81,7 +81,7 @@ interface Harness {
   sessions: FakeBridgeSessionPort
 }
 
-function createHarness(): Harness {
+function createHarness(onStateChange?: (state: ReturnType<DesktopBridgeRuntime['getSafeState']>) => void): Harness {
   let transport!: FakeTransport
   let random = 20
   const sessions = new FakeBridgeSessionPort()
@@ -97,6 +97,7 @@ function createHarness(): Harness {
       setInterval: (callback, delayMs) => setInterval(callback, delayMs),
       clearInterval: handle => clearInterval(handle),
     },
+    onStateChange,
     connectorFactory: options => new BridgeConnectorService({
       ...options,
       randomBytes: length => new Uint8Array(length).fill(random++),
@@ -239,6 +240,33 @@ function emitCommand(
 }
 
 describe('DesktopBridgeRuntime headless data plane', () => {
+  test('notifies immediately when a visible-owner pairing request becomes pending without exposing it globally', async () => {
+    const states: Array<ReturnType<DesktopBridgeRuntime['getSafeState']>> = []
+    const h = createHarness(state => states.push(state))
+    await authenticate(h)
+    h.runtime.openPairing(OWNER_ID)
+    const open = await waitForCount(h.transport, 'pairing.open', 1)
+    h.transport.emit({
+      type: 'pairing.opened', deploymentId: DEPLOYMENT_ID, instanceId: INSTANCE_ID,
+      pairingSessionId: opaque(9), qrPayload: `mkrate://pair?secret=${token(9)}`,
+      manualCodeEnabled: true, manualCode: '12345678', expiresAtMs: 50_000,
+      renewEveryMs: 3_000, leaseLostAfterMs: 8_000,
+      requestId: open.requestId, version: BRIDGE_PROTOCOL_VERSION,
+    })
+    await waitForPairing(h, false)
+    const before = states.length
+    h.transport.emit({
+      type: 'pairing.request', pairingSessionId: opaque(9), pairingRequestId: opaque(10),
+      deviceId: DEVICE_ID, deviceName: 'Phone', bindingId: BINDING_ID,
+      requestedCapabilities: [...COMMAND_CAPABILITIES], requestedAtMs: 2, expiresAtMs: 40_000,
+      requestId: opaque(11), version: BRIDGE_PROTOCOL_VERSION,
+    })
+    await waitForPairing(h, true)
+    expect(states.length).toBeGreaterThan(before)
+    expect(h.runtime.getSafeState(OWNER_ID).pairing?.pendingRequest).toMatchObject({ bindingId: BINDING_ID, deviceName: 'Phone' })
+    expect(states.at(-1)?.pairing?.pendingRequest).toBeUndefined()
+  })
+
   test('dispatches immutable binding scope, projects ordered events, replays, resyncs, and preserves base sink', async () => {
     const h = createHarness()
     await authenticate(h)
