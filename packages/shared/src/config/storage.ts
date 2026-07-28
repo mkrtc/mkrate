@@ -14,8 +14,9 @@ import { extractWorkspaceSlugFromPath } from '../utils/workspace-slug.ts';
 import { initializeDocs } from '../docs/index.ts';
 import { expandPath, toPortablePath, getBundledAssetsDir } from '../utils/paths.ts';
 import { debug } from '../utils/debug.ts';
-import { readJsonFileSync } from '../utils/files.ts';
+import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { CONFIG_DIR, getConfigDir } from './paths.ts';
+import { sanitizeStoredBridgeProfile, type BridgeProfile } from './bridge-profile.ts';
 import type { StoredAttachment, StoredMessage } from '@craft-agent/core/types';
 import type { Plan } from '../agent/plan-types.ts';
 import type { PermissionMode } from '../agent/mode-manager.ts';
@@ -91,6 +92,8 @@ export interface StoredConfig {
   setupDeferred?: boolean;
   // Server mode — embedded remote server settings
   serverConfig?: import('./server-config.ts').ServerConfig;
+  // Trusted Bridge profile (NON-SECRET). Instance token stays in CredentialManager.
+  bridgeProfile?: BridgeProfile;
   // One-shot migration markers. Used by migrations that should run at most
   // once per user (e.g. restoring a previously-removed model to connection
   // lists without re-adding it if the user later removes it deliberately).
@@ -278,6 +281,16 @@ export function loadStoredConfig(): StoredConfig | null {
       return null;
     }
 
+    // Bridge data is optional and must never make unrelated config unusable.
+    // Rebuild valid profiles from a fixed allowlist; malformed profiles fail
+    // closed and unknown/secret-looking fields never enter StoredConfig.
+    const bridgeProfile = sanitizeStoredBridgeProfile(config.bridgeProfile);
+    if (bridgeProfile) {
+      config.bridgeProfile = bridgeProfile;
+    } else {
+      delete config.bridgeProfile;
+    }
+
     // Expand path variables (~ and ${HOME}) for portability
     for (const workspace of config.workspaces) {
       workspace.rootPath = expandPath(workspace.rootPath);
@@ -325,7 +338,16 @@ export function saveConfig(config: StoredConfig): void {
     })),
   };
 
-  writeFileSync(getConfigFile(), JSON.stringify(storageConfig, null, 2), 'utf-8');
+  // Sanitize again at the write boundary so widened/untyped callers cannot
+  // persist partial profiles, unknown fields, or token-like material.
+  const bridgeProfile = sanitizeStoredBridgeProfile(config.bridgeProfile);
+  if (bridgeProfile) {
+    storageConfig.bridgeProfile = bridgeProfile;
+  } else {
+    delete storageConfig.bridgeProfile;
+  }
+
+  atomicWriteFileSync(getConfigFile(), JSON.stringify(storageConfig, null, 2));
 }
 
 // Legacy updateApiKey() removed - use setupLlmConnection IPC handler instead.
