@@ -4,6 +4,7 @@ import {
   COMMAND_CAPABILITIES,
   SECURITY_LIMITS,
   commandRequestBodySchema,
+  messageIdSchema,
   type CommandCapability,
   type CommandRequestBody,
   type CommandResultBody,
@@ -335,7 +336,9 @@ export class MobileBridgeFacade {
           )
           await ack
           await Promise.resolve()
-          if (!acknowledgedId || conflictingAck) throw new BridgeSendAmbiguousError()
+          if (!acknowledgedId || conflictingAck || !messageIdSchema.safeParse(acknowledgedId).success) {
+            throw new BridgeSendAmbiguousError()
+          }
 
           const event = await this.barrier.runExclusive(payload.sessionId, async () => {
             this.authorizer.assertAuthorizedSession(caller, payload.sessionId)
@@ -354,6 +357,7 @@ export class MobileBridgeFacade {
             result: {
               command: payload.command,
               accepted: true,
+              messageId: acknowledgedId,
               userMessageEventId: event.eventId,
               cursor: event.cursor,
             },

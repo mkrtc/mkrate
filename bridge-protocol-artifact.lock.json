@@ -3,10 +3,10 @@
   "package": "@mkrate/bridge-protocol",
   "version": "1.0.0",
   "artifact": "vendor/mkrate-bridge-protocol-1.0.0.tgz",
-  "sha256": "de927a48662956ecc2bebd941332de736aa9e639e7430588bb0221a289edcf20",
+  "sha256": "a3adaf5ddf352be924ee59005f214e8357b957b4c063bc0d11a7b2586170bd79",
   "source": {
     "repository": "https://github.com/mkrtc/mkrate-relay",
-    "commit": "513075333ae1b0eceeca7aa4c5fe8d6519dd6d72",
+    "commit": "3dcd25d9ee5869de0ffff3db850d2715aa6a8cfb",
     "protocolEpoch": "mkrate-bridge/v1"
   },
   "status": "local-vertical-slice-only-not-published"

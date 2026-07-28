@@ -30,7 +30,7 @@ export class FakeBridgeSessionPort implements BridgeSessionPort {
   sessions: Session[] = [testSession()]
   sendCalls: Array<{ sessionId: string; text: string; optimisticMessageId: string }> = []
   cancelCalls: string[] = []
-  sendBehavior: 'ack' | 'no-ack' | 'reject' = 'ack'
+  sendBehavior: 'ack' | 'conflicting-ack' | 'no-ack' | 'reject' = 'ack'
   persistedMessageId = 'persisted-user-1'
 
   getWorkspaces(): readonly BridgeWorkspaceRecord[] { return this.workspaces }
@@ -51,6 +51,10 @@ export class FakeBridgeSessionPort implements BridgeSessionPort {
     this.sendCalls.push({ sessionId, text, optimisticMessageId: request.optimisticMessageId })
     if (this.sendBehavior === 'reject') throw new Error('send failed at /secret/path token=supersecret')
     if (this.sendBehavior === 'ack') request.onAck(this.persistedMessageId)
+    if (this.sendBehavior === 'conflicting-ack') {
+      request.onAck(this.persistedMessageId)
+      request.onAck(`${this.persistedMessageId}-conflict`)
+    }
   }
   async cancelProcessing(sessionId: string): Promise<void> { this.cancelCalls.push(sessionId) }
 }

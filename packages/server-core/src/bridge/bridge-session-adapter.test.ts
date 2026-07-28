@@ -152,12 +152,18 @@ describe('MobileBridgeFacade', () => {
     expect(duplicate.outcome).toBe('success')
     if (first.outcome === 'success' && first.result.command === 'session.send-message'
       && duplicate.outcome === 'success' && duplicate.result.command === 'session.send-message') {
+      expect(first.result.messageId).toBe(port.persistedMessageId)
+      expect(duplicate.result.messageId).toBe(first.result.messageId)
       expect(duplicate.result.userMessageEventId).toBe(first.result.userMessageEventId)
       expect(duplicate.result.cursor).toBe(first.result.cursor)
     }
 
     const completed = await facade.execute(TEST_CALLER, ALL, { ...sendRequest, commandId: opaqueId('command-later') })
     expect(completed.outcome).toBe('success')
+    if (completed.outcome === 'success' && completed.result.command === 'session.send-message'
+      && first.outcome === 'success' && first.result.command === 'session.send-message') {
+      expect(completed.result).toEqual(first.result)
+    }
     expect(port.sendCalls).toHaveLength(1)
 
     const conflict = await facade.execute(TEST_CALLER, ALL, {
@@ -169,17 +175,25 @@ describe('MobileBridgeFacade', () => {
     if (conflict.outcome === 'error') expect(conflict.error.code).toBe('IDEMPOTENCY_CONFLICT')
   })
 
-  it('turns a resolved-without-ack send into cached resync-required ambiguity', async () => {
-    const { port, facade } = setupFacade()
-    port.sendBehavior = 'no-ack'
-    const sendRequest = request({ command: 'session.send-message', sessionId: 'session-1', text: 'hello' })
-    const first = await facade.execute(TEST_CALLER, ALL, sendRequest)
-    const retry = await facade.execute(TEST_CALLER, ALL, { ...sendRequest, commandId: opaqueId('retry') })
-    for (const result of [first, retry]) {
-      expect(result.outcome).toBe('error')
-      if (result.outcome === 'error') expect(result.error.code).toBe('RESYNC_REQUIRED')
+  it('turns missing, invalid, or conflicting acknowledgements into cached resync-required ambiguity', async () => {
+    for (const [behavior, persistedMessageId] of [
+      ['no-ack', 'persisted-user-1'],
+      ['ack', '-invalid'],
+      ['conflicting-ack', 'persisted-user-1'],
+    ] as const) {
+      const { port, facade } = setupFacade()
+      port.sendBehavior = behavior
+      port.persistedMessageId = persistedMessageId
+      const sendRequest = request({ command: 'session.send-message', sessionId: 'session-1', text: 'hello' })
+      const first = await facade.execute(TEST_CALLER, ALL, sendRequest)
+      const retry = await facade.execute(TEST_CALLER, ALL, { ...sendRequest, commandId: opaqueId(`retry-${behavior}`) })
+      for (const result of [first, retry]) {
+        expect(commandResultBodySchema.safeParse(result).success).toBe(true)
+        expect(result.outcome).toBe('error')
+        if (result.outcome === 'error') expect(result.error.code).toBe('RESYNC_REQUIRED')
+      }
+      expect(port.sendCalls).toHaveLength(1)
     }
-    expect(port.sendCalls).toHaveLength(1)
   })
 
   it('caps list counts and enforces the per-binding command rate', async () => {
