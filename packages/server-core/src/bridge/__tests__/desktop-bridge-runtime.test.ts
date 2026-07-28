@@ -324,13 +324,22 @@ describe('DesktopBridgeRuntime headless data plane', () => {
     expect(h.transport.sent).toHaveLength(sentBefore)
   })
 
-  test('clears subscriptions on offline and binding authorization on revoke', async () => {
+  test('drops live subscriptions but preserves replay on offline, then clears binding authorization on revoke', async () => {
     const h = createHarness()
     await authenticate(h)
     await pair(h)
 
     emitCommand(h, 0, { command: 'session.subscribe', sessionId: 'session-1', afterCursor: null })
-    await waitForCount(h.transport, 'command.result', 1)
+    const initialSubscribe = await waitForCount(h.transport, 'command.result', 1)
+    const initialCursor = initialSubscribe.outcome === 'success' && initialSubscribe.result.command === 'session.subscribe'
+      ? initialSubscribe.result.throughCursor
+      : ''
+    const sink = h.runtime.composeSessionEventSink(() => {})
+    sink(RPC_CHANNELS.sessions.EVENT, { to: 'workspace', workspaceId: 'workspace-1' }, {
+      type: 'text_complete', sessionId: 'session-1', text: 'retained across short disconnect', messageId: 'assistant-retained',
+    })
+    await waitForCount(h.transport, 'timeline.event', 1)
+
     h.transport.emit({
       type: 'presence.changed', subject: 'mobile', instanceId: INSTANCE_ID,
       bindingId: BINDING_ID, state: 'offline', changedAtMs: 20, version: BRIDGE_PROTOCOL_VERSION,
@@ -344,13 +353,26 @@ describe('DesktopBridgeRuntime headless data plane', () => {
 
     h.transport.emit({
       type: 'presence.changed', subject: 'mobile', instanceId: INSTANCE_ID,
-      bindingId: BINDING_ID, state: 'revoked', changedAtMs: 21, version: BRIDGE_PROTOCOL_VERSION,
+      bindingId: BINDING_ID, state: 'online', changedAtMs: 21, version: BRIDGE_PROTOCOL_VERSION,
     })
-    await flush()
+    emitCommand(h, 1, { command: 'session.subscribe', sessionId: 'session-1', afterCursor: initialCursor })
+    expect(await waitForCount(h.transport, 'command.result', 2)).toMatchObject({
+      outcome: 'success',
+      result: {
+        command: 'session.subscribe',
+        replay: [expect.objectContaining({ payload: { kind: 'assistant.message', text: 'retained across short disconnect', state: 'complete' } })],
+      },
+    })
+
+    h.transport.emit({
+      type: 'presence.changed', subject: 'mobile', instanceId: INSTANCE_ID,
+      bindingId: BINDING_ID, state: 'revoked', changedAtMs: 22, version: BRIDGE_PROTOCOL_VERSION,
+    })
+    for (let i = 0; i < 50 && h.runtime.listBindings().length > 0; i++) await flush()
     expect(h.runtime.listBindings()).toEqual([])
 
-    emitCommand(h, 1, { command: 'workspace.list-local' })
-    expect(await waitForCount(h.transport, 'command.result', 2)).toMatchObject({
+    emitCommand(h, 2, { command: 'workspace.list-local' })
+    expect(await waitForCount(h.transport, 'command.result', 3)).toMatchObject({
       outcome: 'error',
       error: { code: 'NOT_AUTHORIZED', retryable: false },
     })

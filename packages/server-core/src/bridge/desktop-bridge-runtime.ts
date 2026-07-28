@@ -463,7 +463,7 @@ export class DesktopBridgeRuntime {
   async #closeBindingSubscriptions(bindingId: string, reason: SubscriptionCloseReason): Promise<void> {
     const subscriptions = [...(this.#subscriptions.get(bindingId)?.values() ?? [])]
     this.#subscriptions.delete(bindingId)
-    this.#facade?.clearBinding(bindingId)
+    this.#facade?.clearBindingSubscriptions(bindingId)
     for (const subscription of subscriptions) await this.#sendSubscriptionClosed(subscription, reason)
   }
 

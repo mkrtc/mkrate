@@ -191,8 +191,14 @@ export class MobileBridgeFacade {
     this.events = new BridgeEventProjector(this.authorizer, this.replay, this.barrier, this.now)
   }
 
-  clearBinding(bindingId: string): void {
+  /** Drop only live delivery registrations for a transient Mobile disconnect. */
+  clearBindingSubscriptions(bindingId: string): void {
     this.events.clearBinding(bindingId)
+  }
+
+  /** Terminal binding removal: discard subscriptions, replay, idempotency, and rate state. */
+  clearBinding(bindingId: string): void {
+    this.clearBindingSubscriptions(bindingId)
     this.replay.clearBinding(bindingId)
     this.resultCache.clearBinding(bindingId)
     this.rates.delete(bindingId)
