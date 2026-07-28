@@ -41,7 +41,10 @@ export interface BridgeLogMetadata {
     | 'pairing-close'
     | 'pairing-approve'
     | 'pairing-reject'
-    | 'binding-revoke';
+    | 'binding-revoke'
+    | 'command-result'
+    | 'timeline-event'
+    | 'subscription-close';
   reason?:
     | 'normal'
     | 'network'

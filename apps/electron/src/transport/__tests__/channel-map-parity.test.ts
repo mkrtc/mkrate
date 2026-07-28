@@ -26,6 +26,14 @@ type ApiToChannelMapKeys = Exclude<
   | 'invokeOnServer' // direct IPC to main process — cross-server RPC
   | 'transferSessionToWorkspace' // direct IPC to main process — orchestrated remote transfer
   | 'onTransferProgress' // direct IPC listener — chunk upload progress
+  | 'getBridgeState' // direct local IPC — intentionally not WS RPC
+  | 'updateBridgeProfile'
+  | 'openBridgePairing'
+  | 'closeBridgePairing'
+  | 'approveBridgePairing'
+  | 'rejectBridgePairing'
+  | 'listBridgeBindings'
+  | 'revokeBridgeBinding'
   | 'changeLanguage' // direct IPC to main process — syncs i18n language
   | 'getFilePath' // renderer-local — webUtils.getPathForFile, no IPC round-trip
 > | BrowserPaneKeys

@@ -6,9 +6,12 @@ import {
   COMMAND_CAPABILITIES,
   SECURITY_LIMITS,
   encodeBase64Url,
+  tokenSchema,
   type BridgeCommandCapability,
+  type CommandResultBody,
   type DesktopClientMessage,
   type DesktopServerMessage,
+  type TimelineEvent,
 } from '@mkrate/bridge-protocol';
 import {
   setBridgeProfile,
@@ -54,8 +57,14 @@ export type PairingRequestMessage = Extract<DesktopServerMessage, { type: 'pairi
 export type PairingApprovedMessage = Extract<DesktopServerMessage, { type: 'pairing.approved' }>;
 export type PairingRejectedMessage = Extract<DesktopServerMessage, { type: 'pairing.rejected' }>;
 export type BindingRevokedMessage = Extract<DesktopServerMessage, { type: 'binding.revoked' }>;
+export type PresenceChangedMessage = Extract<DesktopServerMessage, { type: 'presence.changed' }>;
 export type PairingCloseReason = Extract<DesktopClientMessage, { type: 'pairing.close' }>['reason'];
 export type PairingRejectReason = Extract<DesktopClientMessage, { type: 'pairing.reject' }>['reason'];
+export type SubscriptionCloseReason = Extract<DesktopClientMessage, { type: 'session.subscription.closed' }>['reason'];
+
+export function isValidBridgeEnrollmentToken(value: unknown): value is string {
+  return tokenSchema.safeParse(value).success;
+}
 
 export interface BridgeCredentialAccess {
   getBridgeInstanceToken(profileId: string): Promise<string | null>;
@@ -106,6 +115,7 @@ export interface BridgeConnectorServiceOptions {
   webSocketFactory?: BridgeTransportOptions['webSocketFactory'];
   onStateChange?: (state: BridgeConnectorState, terminalReason: BridgeTerminalReason | null) => void;
   onCommandRequest?: (message: Extract<DesktopServerMessage, { type: 'command.request' }>) => void;
+  onPresenceChanged?: (message: PresenceChangedMessage) => void;
 }
 
 type DesktopServerMessageType = DesktopServerMessage['type'];
@@ -171,6 +181,7 @@ export class BridgeConnectorService {
   readonly #transport: BridgeTransportPort;
   readonly #onStateChange?: BridgeConnectorServiceOptions['onStateChange'];
   readonly #onCommandRequest?: BridgeConnectorServiceOptions['onCommandRequest'];
+  readonly #onPresenceChanged?: BridgeConnectorServiceOptions['onPresenceChanged'];
 
   #profile: BridgeProfile;
   #state: BridgeConnectorState = 'stopped';
@@ -201,6 +212,10 @@ export class BridgeConnectorService {
       ?? ((profile) => defaultPersistProfile(profile, this.#allowInsecureLoopback));
     this.#onStateChange = options.onStateChange;
     this.#onCommandRequest = options.onCommandRequest;
+    this.#onPresenceChanged = options.onPresenceChanged;
+    if (options.enrollmentToken !== undefined && !tokenSchema.safeParse(options.enrollmentToken).success) {
+      throw new Error('Invalid Bridge enrollment token');
+    }
     this.#bootstrap = options.enrollmentToken ?? null;
 
     const callbacks: BridgeTransportCallbacks = {
@@ -264,7 +279,7 @@ export class BridgeConnectorService {
     if (this.#enrollmentSubmitted || this.#state === 'enrollment-unknown') {
       throw new Error('Enrollment outcome is unknown; reconcile before using a new bootstrap');
     }
-    if (enrollmentToken.trim().length === 0) throw new Error('Enrollment token must not be empty');
+    if (!tokenSchema.safeParse(enrollmentToken).success) throw new Error('Invalid Bridge enrollment token');
     this.#bootstrap = enrollmentToken;
   }
 
@@ -451,6 +466,50 @@ export class BridgeConnectorService {
     ));
   }
 
+  /** Send one strict command result. No arbitrary message or RPC send is exposed. */
+  sendCommandResult(result: CommandResultBody): Promise<void> {
+    this.#requireAuthenticated();
+    return this.#transport.send({
+      ...result,
+      type: 'command.result',
+      version: BRIDGE_PROTOCOL_VERSION,
+    });
+  }
+
+  /** Send one already-projected timeline event to its exact subscription. */
+  sendTimelineEvent(input: {
+    bindingId: string;
+    subscriptionId: string;
+    event: TimelineEvent;
+  }): Promise<void> {
+    this.#requireAuthenticated();
+    return this.#transport.send({
+      type: 'timeline.event',
+      bindingId: input.bindingId,
+      subscriptionId: input.subscriptionId,
+      event: input.event,
+      version: BRIDGE_PROTOCOL_VERSION,
+    });
+  }
+
+  /** Notify Mobile that one exact subscription has been closed. */
+  sendSubscriptionClosed(input: {
+    bindingId: string;
+    subscriptionId: string;
+    sessionId: string;
+    reason: SubscriptionCloseReason;
+  }): Promise<void> {
+    this.#requireAuthenticated();
+    return this.#transport.send({
+      type: 'session.subscription.closed',
+      bindingId: input.bindingId,
+      subscriptionId: input.subscriptionId,
+      sessionId: input.sessionId,
+      reason: input.reason,
+      version: BRIDGE_PROTOCOL_VERSION,
+    });
+  }
+
   #handleOpen(): void {
     if (this.#stopping) return;
     const generation = ++this.#handshakeGeneration;
@@ -605,7 +664,14 @@ export class BridgeConnectorService {
       for (const listener of this.#pairingRejectedListeners) listener(message);
       return;
     }
-    if (message.type === 'presence.changed') return;
+    if (message.type === 'presence.changed') {
+      if (!this.#authenticated) {
+        this.#protocolViolation();
+        return;
+      }
+      this.#onPresenceChanged?.(message);
+      return;
+    }
     if (message.type === 'command.request') {
       if (!this.#authenticated) {
         this.#protocolViolation();

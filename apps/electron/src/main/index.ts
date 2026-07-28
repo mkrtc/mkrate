@@ -122,6 +122,8 @@ import { createQuitLifecycle } from './quit-lifecycle'
 import { runPreUpdateCleanup } from './pre-update-cleanup'
 import type { EventSink } from '@craft-agent/server-core/transport'
 import { validateGitBashPath, checkVCRedistInstalled } from '@craft-agent/server-core/services'
+import { ElectronBridgeRuntime, stopBridgeBeforeSessionCleanup } from './bridge/bridge-runtime'
+import { registerBridgeIpc, type BridgeIpcEventLike } from './bridge/bridge-ipc'
 
 // Initialize electron-log for renderer process support
 log.initialize()
@@ -216,6 +218,8 @@ let browserPaneManager: BrowserPaneManager | null = null
 let oauthFlowStore: OAuthFlowStore | null = null
 let moduleSink: EventSink | null = null
 let moduleClientResolver: ((webContentsId: number) => string | undefined) | null = null
+let bridgeRuntime: ElectronBridgeRuntime | null = null
+let unregisterBridgeIpc: (() => void) | null = null
 
 // Messaging gateway: the bootstrap handle is created once sessionManager is
 // available (inside createHandlerDeps) and populated with the WS publisher
@@ -779,6 +783,29 @@ app.whenReady().then(async () => {
         return
       }
 
+      // Trusted Bridge is authoritative-host-only. Construct it after
+      // SessionManager initialization and before the final event-sink fan-out.
+      try {
+        bridgeRuntime = new ElectronBridgeRuntime({
+          sessionManager: instance.sessionManager,
+          credentials: getCredentialManager(),
+          clientVersion: app.getVersion(),
+          allowInsecureLoopback: !app.isPackaged,
+        })
+        bridgeRuntime.start()
+        unregisterBridgeIpc = registerBridgeIpc({
+          ipcMain,
+          runtime: bridgeRuntime,
+          isOwnerVisible: (event: BridgeIpcEventLike) => {
+            const window = BrowserWindow.fromWebContents(event.sender as Electron.WebContents)
+            return !!window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()
+          },
+        })
+      } catch {
+        bridgeRuntime = null
+        mainLog.error('[bridge] Authoritative host initialization failed')
+      }
+
       // -----------------------------------------------------------------------
       // Messaging Gateway — attach the WS publisher, init local workspaces,
       // install the fan-out event sink. The handle was created inside
@@ -801,12 +828,19 @@ app.whenReady().then(async () => {
         // Always install — this lets workspaces enable messaging at runtime
         // without a process restart.
         const baseSink = instance.wsServer.push.bind(instance.wsServer)
-        instance.sessionManager.setEventSink(messagingHandle.wrapSink(baseSink))
+        const messagingSink = messagingHandle.wrapSink(baseSink)
+        instance.sessionManager.setEventSink(
+          bridgeRuntime ? bridgeRuntime.composeSessionEventSink(messagingSink) : messagingSink,
+        )
         if (messagingHandle.registry.size > 0) {
           mainLog.info(`[messaging] Fan-out sink active for ${messagingHandle.registry.size} workspace(s)`)
         }
       } catch (err) {
         mainLog.error('[messaging] Gateway initialization failed:', err)
+        const baseSink = instance.wsServer.push.bind(instance.wsServer)
+        instance.sessionManager.setEventSink(
+          bridgeRuntime ? bridgeRuntime.composeSessionEventSink(baseSink) : baseSink,
+        )
       }
 
       // IPC handlers — preload uses sendSync to get WS connection details
@@ -1302,8 +1336,17 @@ async function runQuitCleanup(
 ): Promise<void> {
   const deadline = Date.now() + resolveRuntimeLifecycleConfig().shutdownTimeoutMs
 
+  // Stop local Bridge admission, pairing, subscriptions, and socket before
+  // SessionManager teardown. Direct Bridge IPC is removed at the same fence.
+  unregisterBridgeIpc?.()
+  unregisterBridgeIpc = null
+  const runtimeToStop = bridgeRuntime
+  bridgeRuntime = null
+
   // Shared awaited cleanup closes admission and disposes all exact bundles in parallel.
-  await sessionManager?.cleanup({ deadline, skipFlush: options.skipSessionFlush })
+  await stopBridgeBeforeSessionCleanup(runtimeToStop, async () => {
+    await sessionManager?.cleanup({ deadline, skipFlush: options.skipSessionFlush })
+  })
 
   // Clean up browser pane instances.
   browserPaneManager?.destroyAll()
