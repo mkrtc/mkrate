@@ -222,6 +222,7 @@ describe('cross-platform reproducible packaging contracts', () => {
       expect(script).toContain('1.3.10')
       expect(script).toContain('bun install --frozen-lockfile')
     }
+    expect(commonBuild).toContain("export const BUN_VERSION = 'bun-v1.3.10'")
   })
 
   it('downloads and requires a checksummed target uv runtime in every clean platform build', () => {
@@ -232,7 +233,10 @@ describe('cross-platform reproducible packaging contracts', () => {
     expect(winScript).toContain('prepare-electron-uv.ts win32 x64')
     expect(winScript).toContain('resources\\bin\\win32-x64\\uv.exe')
     expect(uvBootstrap).toContain('await downloadUv(config)')
+    expect(commonBuild).toContain('Downloading fresh uv')
     expect(commonBuild).toContain('uv checksum verification failed')
+    expect(commonBuild).toContain('uv version mismatch')
+    expect(commonBuild).not.toContain('uv already present')
     expect(builder).toContain('resources/bin/linux-x64/**/*')
     expect(builder).toContain('resources/bin/darwin-arm64/**/*')
     expect(builder).toContain('resources/bin/darwin-x64/**/*')
@@ -245,6 +249,37 @@ describe('cross-platform reproducible packaging contracts', () => {
       expect(script).toContain('npm pack --json')
       expect(script.indexOf('dist.integrity')).toBeLessThan(script.lastIndexOf('tar -xzf'))
     }
+  })
+
+  it('uses the canonical Electron build path on Windows instead of divergent manual bundling', () => {
+    expect(winScript).toContain('bun run electron:build')
+    expect(winScript).not.toContain('npx esbuild')
+    expect(winScript).not.toContain('npx vite build')
+    expect(read(repoRoot, 'scripts', 'electron-build-main.ts')).toContain('--alias:node-fetch=./apps/electron/src/main/shims/node-fetch.cjs')
+    expect(read(repoRoot, 'scripts', 'electron-build-main.ts')).toContain('--alias:abort-controller=./apps/electron/src/main/shims/abort-controller.cjs')
+  })
+
+  it('stages and includes the target sharp runtime graph for every platform artifact', () => {
+    const sharpStager = read(repoRoot, 'scripts', 'stage-sharp-runtime.ts')
+    for (const [script, platform] of [
+      [linuxScript, 'linux "$ARCH"'],
+      [dmgScript, 'darwin "$ARCH"'],
+      [winScript, 'win32 x64'],
+    ] as const) {
+      expect(script).toContain('scripts/__tests__/sharp-native-smoke.test.ts')
+      expect(script).toContain(`scripts/stage-sharp-runtime.ts stage ${platform}`)
+      expect(script).toContain('scripts/stage-sharp-runtime.ts verify-packaged')
+    }
+    expect(sharpStager).toContain("const SHARP_VERSION = '0.35.0'")
+    expect(sharpStager).toContain("const LIBVIPS_PACKAGE_VERSION = '1.3.0'")
+    expect(sharpStager).toContain('dist.integrity')
+    expect(sharpStager).toContain('npm pack')
+    expect(builder).toContain('from: node_modules/sharp')
+    expect(builder).toContain('to: app/node_modules/sharp')
+    expect(builder).toContain('from: node_modules/@img')
+    expect(builder).toContain('from: node_modules/detect-libc')
+    expect(builder).toContain('from: node_modules/semver')
+    expect(builder).toContain('sharp-runtime-manifest.json')
   })
 
   it('reports the deliberate unsigned release status on Windows and macOS', () => {

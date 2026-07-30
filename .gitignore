@@ -9,6 +9,7 @@ dist
 apps/electron/release
 apps/electron/resources/session-mcp-server/
 apps/electron/resources/pi-agent-server/
+apps/electron/resources/sharp-runtime-manifest.json
 
 # code coverage
 coverage

@@ -34,7 +34,7 @@ export interface BuildConfig {
  * Update this when upgrading Bun. Check latest at: https://github.com/oven-sh/bun/releases
  * This should match or be close to the version used in CI (setup-bun action).
  */
-export const BUN_VERSION = 'bun-v1.3.9';
+export const BUN_VERSION = 'bun-v1.3.10';
 
 /**
  * uv version to bundle with the app.
@@ -203,13 +203,12 @@ export async function downloadUv(config: BuildConfig): Promise<void> {
   const targetDir = join(electronDir, 'resources', 'bin', platformKey);
   const targetPath = join(targetDir, uvBinaryName);
 
-  // Skip when already provisioned
-  if (existsSync(targetPath)) {
-    console.log(`uv already present at ${targetPath}`);
-    return;
-  }
+  // Do not trust a pre-existing runtime in release builds: always provision a
+  // fresh archive for the requested target and verify the publisher checksum
+  // before copying it into resources/bin/<platform-arch>/.
+  rmSync(targetDir, { recursive: true, force: true });
 
-  console.log(`Downloading uv ${UV_VERSION} for ${platformKey}...`);
+  console.log(`Downloading fresh uv ${UV_VERSION} for ${platformKey}...`);
 
   mkdirSync(targetDir, { recursive: true });
   const tempDir = join(electronDir, '.uv-download-temp');
@@ -260,6 +259,14 @@ export async function downloadUv(config: BuildConfig): Promise<void> {
     copyFileSync(extractedUv, targetPath);
     if (platform !== 'win32') {
       await $`chmod +x ${targetPath}`.quiet();
+    }
+
+    const currentArch = process.arch === 'x64' || process.arch === 'arm64' ? process.arch : undefined;
+    if (process.platform === platform && currentArch === arch) {
+      const versionOutput = execSync(`\"${targetPath}\" --version`, { encoding: 'utf8' }).trim();
+      if (versionOutput !== `uv ${UV_VERSION}`) {
+        throw new Error(`uv version mismatch: expected uv ${UV_VERSION}, found ${versionOutput}`);
+      }
     }
 
     console.log(`  uv installed to ${targetPath} ✓`);

@@ -69,6 +69,9 @@ files:
 #
 # Ripgrep is sourced from `@vscode/ripgrep` (was previously bundled inside the
 # SDK as `vendor/ripgrep/<platform>/rg`; removed in 0.2.113).
+# scripts/stage-sharp-runtime.ts writes resources/sharp-runtime-manifest.json;
+# electron:build copies it to dist/resources/sharp-runtime-manifest.json, which
+# is included via dist/**/* and verified from packaged artifacts.
 
 extraMetadata:
   main: dist/main.cjs
@@ -121,6 +124,17 @@ mac:
     # ripgrep (used by packages/server-core/src/services/search.ts).
     - from: node_modules/@vscode/ripgrep
       to: app/node_modules/@vscode/ripgrep
+    # Minimal sharp 0.35.0 runtime closure staged by scripts/stage-sharp-runtime.ts.
+    # node_modules is excluded from regular files, so these required resources
+    # must stay in extraResources for Linux/macOS/Windows artifacts.
+    - from: node_modules/sharp
+      to: app/node_modules/sharp
+    - from: node_modules/@img
+      to: app/node_modules/@img
+    - from: node_modules/detect-libc
+      to: app/node_modules/detect-libc
+    - from: node_modules/semver
+      to: app/node_modules/semver
     # WhatsApp worker subprocess (self-contained; Baileys bundled in).
     - from: ../../packages/messaging-whatsapp-worker/dist/worker.cjs
       to: messaging-whatsapp-worker/worker.cjs
@@ -179,6 +193,17 @@ win:
       to: app/node_modules/@anthropic-ai/claude-agent-sdk-binary
     - from: node_modules/@vscode/ripgrep
       to: app/node_modules/@vscode/ripgrep
+    # Minimal sharp 0.35.0 runtime closure staged by scripts/stage-sharp-runtime.ts.
+    # node_modules is excluded from regular files, so these required resources
+    # must stay in extraResources for Linux/macOS/Windows artifacts.
+    - from: node_modules/sharp
+      to: app/node_modules/sharp
+    - from: node_modules/@img
+      to: app/node_modules/@img
+    - from: node_modules/detect-libc
+      to: app/node_modules/detect-libc
+    - from: node_modules/semver
+      to: app/node_modules/semver
     - from: vendor/bun/bun.exe
       to: vendor/bun/bun.exe
     - from: resources/bin/win32-x64
@@ -212,6 +237,17 @@ linux:
       to: app/node_modules/@anthropic-ai/claude-agent-sdk-binary
     - from: node_modules/@vscode/ripgrep
       to: app/node_modules/@vscode/ripgrep
+    # Minimal sharp 0.35.0 runtime closure staged by scripts/stage-sharp-runtime.ts.
+    # node_modules is excluded from regular files, so these required resources
+    # must stay in extraResources for Linux/macOS/Windows artifacts.
+    - from: node_modules/sharp
+      to: app/node_modules/sharp
+    - from: node_modules/@img
+      to: app/node_modules/@img
+    - from: node_modules/detect-libc
+      to: app/node_modules/detect-libc
+    - from: node_modules/semver
+      to: app/node_modules/semver
     # WhatsApp worker subprocess (self-contained; Baileys bundled in).
     - from: ../../packages/messaging-whatsapp-worker/dist/worker.cjs
       to: messaging-whatsapp-worker/worker.cjs

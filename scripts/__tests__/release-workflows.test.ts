@@ -218,6 +218,20 @@ describe('pre-tag evidence contract', () => {
     expect(evidence).not.toContain('--upload');
     expect(evidence).not.toContain('S3_');
   });
+
+  test('hosted builders emit artifact-oriented sharp runtime identity evidence', () => {
+    const buildScripts = [
+      readFileSync(join(root, 'apps/electron/scripts/build-linux.sh'), 'utf8'),
+      readFileSync(join(root, 'apps/electron/scripts/build-dmg.sh'), 'utf8'),
+      readFileSync(join(root, 'apps/electron/scripts/build-win.ps1'), 'utf8'),
+    ];
+    for (const script of buildScripts) {
+      expect(script).toContain('scripts/__tests__/sharp-native-smoke.test.ts');
+      expect(script).toContain('scripts/stage-sharp-runtime.ts stage');
+      expect(script).toContain('scripts/stage-sharp-runtime.ts verify-packaged');
+    }
+    expect(readFileSync(join(root, 'scripts/stage-sharp-runtime.ts'), 'utf8')).toContain('Packaged sharp smoke passed');
+  });
 });
 
 describe('release artifact verifier', () => {

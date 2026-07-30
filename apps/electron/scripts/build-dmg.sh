@@ -97,6 +97,9 @@ echo "Installing dependencies from the committed lockfile..."
 cd "$ROOT_DIR"
 bun install --frozen-lockfile
 
+echo "Running host-native sharp smoke..."
+bun test scripts/__tests__/sharp-native-smoke.test.ts
+
 # 3. Download Bun binary with checksum verification
 echo "Downloading Bun ${BUN_VERSION} for darwin-${ARCH}..."
 mkdir -p "$ELECTRON_DIR/vendor/bun"
@@ -225,6 +228,12 @@ for dep in interceptor-common.ts feature-flags.ts interceptor-request-utils.ts; 
   fi
 done
 
+# 6a. Stage the exact target sharp runtime graph. node_modules is excluded from
+#     regular electron-builder files, so the helper creates the minimal closure
+#     consumed by required extraResources and writes a packaged identity manifest.
+echo "Staging sharp runtime for darwin-${ARCH}..."
+bun run scripts/stage-sharp-runtime.ts stage darwin "$ARCH"
+
 # 5b. Generate the native icon with Apple tooling. The generator validates the
 # exact approved source hash and fails closed before any app bundle is produced.
 echo "Generating native Mkrate macOS icon..."
@@ -292,6 +301,10 @@ fi
 # Validate the staged bundle before accepting the matching DMG/ZIP names.
 APP_BUNDLE="$ELECTRON_DIR/release/mac-${ARCH}/Mkrate.app"
 require_path "$APP_BUNDLE" "Mkrate ${ARCH} app bundle" "electron-builder did not stage the expected Mkrate.app bundle."
+echo "Verifying packaged sharp runtime graph..."
+cd "$ROOT_DIR"
+bun run scripts/stage-sharp-runtime.ts verify-packaged darwin "$ARCH" "$APP_BUNDLE/Contents/Resources/app"
+cd "$ELECTRON_DIR"
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE/Contents/Info.plist")"
 BUNDLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP_BUNDLE/Contents/Info.plist")"
 [ "$BUNDLE_ID" = "ru.mkrate.desktop" ] || { echo "ERROR: unexpected bundle id: $BUNDLE_ID" >&2; exit 1; }

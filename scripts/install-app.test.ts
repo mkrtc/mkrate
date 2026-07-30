@@ -20,6 +20,11 @@ function writeExecutable(path: string, contents: string) {
 function runLinuxInstall(
   pgrepOutput: string | ((appImage: string) => string),
   hasExistingInstall: boolean,
+  options: {
+    env?: Record<string, string>
+    expectedExitCode?: number
+    manifestVersion?: string
+  } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), 'mkrate-installer-test-'))
   tempDirs.push(root)
@@ -37,7 +42,8 @@ function runLinuxInstall(
 
   const payload = '#!/bin/sh\nif [ "$1" = "--appimage-extract" ]; then\n  mkdir -p squashfs-root/usr/share/icons/hicolor/512x512/apps\n  : > squashfs-root/usr/share/icons/hicolor/512x512/apps/mkrate.png\nfi\n'
   const sha512 = createHash('sha512').update(payload).digest('base64')
-  const manifest = `version: 0.0.1\nfiles:\n  - url: Mkrate-x64.AppImage\n    sha512: ${sha512}\n    arch: x64\n`
+  const manifestVersion = options.manifestVersion ?? '0.0.1'
+  const manifest = `version: ${manifestVersion}\nfiles:\n  - url: Mkrate-x64.AppImage\n    sha512: ${sha512}\n    arch: x64\n`
   const resolvedPgrepOutput =
     typeof pgrepOutput === 'function'
       ? pgrepOutput(appImage)
@@ -70,14 +76,17 @@ printf '%s' '${manifest.replace(/'/g, "'\\''")}'
       HOME: home,
       PATH: `${bin}:${process.env.PATH}`,
       CRAFT_AGENTS_DOWNLOAD_BASE_URL: 'https://example.invalid/v0.0.1',
+      ...(options.env ?? {}),
     },
     stdout: 'pipe',
     stderr: 'pipe',
   })
-  expect(result.exitCode).toBe(0)
+  expect(result.exitCode).toBe(options.expectedExitCode ?? 0)
   return {
     appImage,
     stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+    exitCode: result.exitCode,
   }
 }
 
@@ -124,5 +133,21 @@ describe('Linux installer process handoff', () => {
     } finally {
       target!.kill()
     }
+  })
+
+  it('accepts an exact MKRATE_INSTALL_VERSION manifest match', () => {
+    const result = runLinuxInstall('', false, { env: { MKRATE_INSTALL_VERSION: '0.0.1' } })
+    expect(result.stdout).toContain('Required install version accepted: 0.0.1')
+    expect(result.stdout).toContain('Installation complete!')
+  })
+
+  it('fails closed before download/install when MKRATE_INSTALL_VERSION mismatches the manifest', () => {
+    const result = runLinuxInstall('', false, {
+      env: { MKRATE_INSTALL_VERSION: '0.0.2' },
+      expectedExitCode: 1,
+    })
+    expect(result.stdout).toContain('Manifest version mismatch: expected 0.0.2, got 0.0.1')
+    expect(result.stdout).not.toContain('Downloading Mkrate-x64.AppImage')
+    expect(result.stdout).not.toContain('Installing AppImage')
   })
 })

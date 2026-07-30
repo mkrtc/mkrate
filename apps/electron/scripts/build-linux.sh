@@ -82,6 +82,9 @@ echo "Installing dependencies from the committed lockfile..."
 cd "$ROOT_DIR"
 bun install --frozen-lockfile
 
+echo "Running host-native sharp smoke..."
+bun test scripts/__tests__/sharp-native-smoke.test.ts
+
 # 3. Download Bun binary with checksum verification
 echo "Downloading Bun ${BUN_VERSION} for linux-${ARCH}..."
 mkdir -p "$ELECTRON_DIR/vendor/bun"
@@ -200,6 +203,12 @@ for dep in interceptor-common.ts feature-flags.ts interceptor-request-utils.ts; 
   fi
 done
 
+# 6a. Stage the exact target sharp runtime graph. node_modules is excluded from
+#     regular electron-builder files, so the helper creates the minimal closure
+#     consumed by required extraResources and writes a packaged identity manifest.
+echo "Staging sharp runtime for linux-${ARCH}..."
+bun run scripts/stage-sharp-runtime.ts stage linux "$ARCH"
+
 # 6. Build Electron app
 echo "Building Electron app..."
 cd "$ROOT_DIR"
@@ -245,6 +254,16 @@ if [ -f "$LATEST_LINUX_YML" ]; then
     sed -i "s/$BUILT_APPIMAGE_NAME/$APPIMAGE_NAME/g" "$LATEST_LINUX_YML"
     echo "Updated latest-linux.yml artifact path to $APPIMAGE_NAME"
 fi
+
+echo "Verifying packaged sharp runtime from AppImage extraction..."
+APP_EXTRACT_DIR=$(mktemp -d)
+(
+    cd "$APP_EXTRACT_DIR"
+    "$APPIMAGE_PATH" --appimage-extract >/dev/null
+)
+cd "$ROOT_DIR"
+bun run scripts/stage-sharp-runtime.ts verify-packaged linux "$ARCH" "$APP_EXTRACT_DIR/squashfs-root/resources/app"
+rm -rf "$APP_EXTRACT_DIR"
 
 echo ""
 echo "=== Build Complete ==="

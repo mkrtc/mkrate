@@ -21,6 +21,7 @@ describe('Mkrate v0.0.1 release version contract', () => {
 
     expect(rootPackage.version).toBe(releaseVersion)
     expect(rootPackage.packageManager).toBe('bun@1.3.10')
+    expect(readText('scripts/build/common.ts')).toContain("export const BUN_VERSION = 'bun-v1.3.10'")
     expect(electronPackage.version).toBe(releaseVersion)
 
     expect(readText('packages/server-core/src/bridge/desktop-bridge-runtime.ts')).toContain(

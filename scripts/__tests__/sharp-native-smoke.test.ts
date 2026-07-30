@@ -43,4 +43,29 @@ describe('native sharp runtime smoke', () => {
       expect(source).toContain('"--external:sharp"')
     }
   })
+
+  it('defines an exact target-aware staged packaging graph for Electron artifacts', () => {
+    const stager = readFileSync(join(ROOT, 'scripts/stage-sharp-runtime.ts'), 'utf8')
+    const builder = readFileSync(join(ROOT, 'apps/electron/electron-builder.yml'), 'utf8')
+
+    expect(stager).toContain("const SHARP_VERSION = '0.35.0'")
+    expect(stager).toContain("const LIBVIPS_PACKAGE_VERSION = '1.3.0'")
+    expect(stager).toContain("const SHARP_SEMVER_VERSION = '7.8.5'")
+    expect(stager).toContain('`@img/sharp-${runtime}`')
+    expect(stager).toContain('`@img/sharp-libvips-${runtime}`')
+    expect(stager).toContain("platform === 'win32' ? null")
+    expect(stager).toContain('verifyNpmIntegrity')
+    expect(stager).toContain('npm pack')
+    expect(stager).toContain('dist.integrity')
+    expect(stager).toContain('sharp-runtime-manifest.json')
+
+    for (const requiredExtraResource of [
+      'from: node_modules/sharp',
+      'from: node_modules/@img',
+      'from: node_modules/detect-libc',
+      'from: node_modules/semver',
+    ]) {
+      expect(builder).toContain(requiredExtraResource)
+    }
+  })
 })

@@ -205,6 +205,19 @@ fi
 
 info "Latest version: $version"
 
+# Optional exact-version acceptance gate for pinned installs (for example the
+# v0.0.1 release acceptance path). By default this remains a latest/download
+# installer so future upgrades continue to work without editing the script.
+if [ -n "${MKRATE_INSTALL_VERSION:-}" ]; then
+    if [[ ! "$MKRATE_INSTALL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        error "MKRATE_INSTALL_VERSION must be MAJOR.MINOR.PATCH, got: $MKRATE_INSTALL_VERSION"
+    fi
+    if [ "$version" != "$MKRATE_INSTALL_VERSION" ]; then
+        error "Manifest version mismatch: expected $MKRATE_INSTALL_VERSION, got $version"
+    fi
+    info "Required install version accepted: $MKRATE_INSTALL_VERSION"
+fi
+
 # Extract sha512 and filename for our architecture
 if [ "$HAS_YQ" = true ]; then
     checksum=$(echo "$manifest_yaml" | yq -r ".files[] | select(.arch == \"$arch\") | .sha512" | head -1)
