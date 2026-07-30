@@ -315,10 +315,12 @@ async function buildWhatsAppWorker(): Promise<void> {
       "--external:electron",
       // Baileys' runtime-optional features — wrapped in try/catch at the
       // call site and not used by Craft Agent (we send text + documents, no
-      // link previews, no inline image processing, no terminal QR).
+      // link previews, inline image processing, or terminal QR). Native sharp
+      // 0.35.x cannot be embedded in this single-file worker bundle.
       "--external:link-preview-js",
       "--external:qrcode-terminal",
       "--external:jimp",
+      "--external:sharp",
     ],
     cwd: ROOT_DIR,
     stdout: "inherit",

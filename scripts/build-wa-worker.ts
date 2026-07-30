@@ -95,13 +95,15 @@ async function main(): Promise<void> {
       // Mark only Electron + Baileys' runtime-optional peers external.
       // Baileys itself and all its required transitive deps get bundled.
       //
-      // The three optional deps below are unused by Craft Agent (no link
-      // previews, no terminal QR, no inline image transforms). Baileys
-      // guards them with try/catch so they fail silently at runtime.
+      // These optional peers are unused by Craft Agent (no link previews,
+      // terminal QR, or inline image transforms). Baileys guards them with
+      // try/catch so they fail silently at runtime. Keep sharp external:
+      // native sharp 0.35.x cannot be embedded in this single-file bundle.
       "--external:electron",
       "--external:link-preview-js",
       "--external:qrcode-terminal",
       "--external:jimp",
+      "--external:sharp",
     ],
     cwd: ROOT_DIR,
     stdout: "inherit",
