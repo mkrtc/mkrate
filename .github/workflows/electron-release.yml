@@ -1,0 +1,775 @@
+name: Electron Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: electron-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+  BUN_VERSION: '1.3.10'
+  DRAFT_VISIBILITY_MAX_ATTEMPTS: '12'
+  DRAFT_VISIBILITY_DELAY_SECONDS: '5'
+
+jobs:
+  prepare-release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run_attempt: ${{ steps.release-ready.outputs.run_attempt }}
+      release_id: ${{ steps.release-ready.outputs.release_id }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Validate release tag
+        shell: bash
+        env:
+          EVENT_REF: ${{ github.ref }}
+          PINNED_SHA: ${{ github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must match vMAJOR.MINOR.PATCH, got: $RELEASE_TAG"
+            exit 1
+          fi
+
+          git fetch --force --tags origin
+          if ! git rev-parse --verify --quiet "refs/tags/$RELEASE_TAG" >/dev/null; then
+            echo "::error::Tag does not exist: $RELEASE_TAG"
+            exit 1
+          fi
+
+          release_sha="$(git rev-parse "$RELEASE_TAG^{}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          if [[ "$checkout_sha" != "$release_sha" ]]; then
+            echo "::error::Checkout ($checkout_sha) does not match peeled tag commit ($release_sha)"
+            exit 1
+          fi
+
+          if [[ "$EVENT_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "::error::Tag-push run is pinned to $EVENT_REF, not refs/tags/$RELEASE_TAG"
+            exit 1
+          fi
+          pinned_sha="$(git rev-parse "$PINNED_SHA^{}")"
+          if [[ "$pinned_sha" != "$release_sha" ]]; then
+            echo "::error::Peeled tag commit ($release_sha) does not match pinned run SHA ($pinned_sha)"
+            exit 1
+          fi
+
+          expected_version="${RELEASE_TAG#v}"
+          notes_file="apps/electron/resources/release-notes/${expected_version}.md"
+          package_version="$(python3 -c 'import json; print(json.load(open("apps/electron/package.json"))["version"])')"
+          if [[ "$package_version" != "$expected_version" ]]; then
+            echo "::error::apps/electron/package.json version ($package_version) does not match tag ($expected_version)"
+            exit 1
+          fi
+          if [[ ! -f "$notes_file" ]]; then
+            echo "::error::Release notes file does not exist at tag: $notes_file"
+            exit 1
+          fi
+
+          {
+            echo "EXPECTED_VERSION=$expected_version"
+            echo "NOTES_FILE=$notes_file"
+            echo "RELEASE_SHA=$release_sha"
+          } >> "$GITHUB_ENV"
+
+      - name: Create or recover draft GitHub Release
+        id: release-ready
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          all_releases="$RUNNER_TEMP/all-releases.json"
+          release_json="$RUNNER_TEMP/release.json"
+          marked_notes="$RUNNER_TEMP/release-notes-marked.md"
+
+          python3 - "$NOTES_FILE" "$marked_notes" "$GITHUB_RUN_ID" <<'PY'
+          import sys
+          from pathlib import Path
+
+          body = Path(sys.argv[1]).read_text()
+          marker = f"<!-- mkrate-release-run:{sys.argv[3]} -->"
+          Path(sys.argv[2]).write_text(body + ("" if body.endswith("\n") else "\n") + f"\n{marker}\n")
+          PY
+
+          find_release() {
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$all_releases"
+            python3 - "$all_releases" "$RELEASE_TAG" "$release_json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          pages = json.loads(Path(sys.argv[1]).read_text())
+          releases = [release for page in pages for release in page]
+          matches = [release for release in releases if release.get("tag_name") == sys.argv[2]]
+          if len(matches) > 1:
+              raise SystemExit(f"Expected at most one exact-tag release, found {len(matches)}")
+          if matches:
+              Path(sys.argv[3]).write_text(json.dumps(matches[0]))
+          else:
+              Path(sys.argv[3]).unlink(missing_ok=True)
+          print(len(matches))
+          PY
+          }
+
+          match_count="$(find_release)"
+          if (( RUN_ATTEMPT == 1 )); then
+            if [[ "$match_count" != "0" ]]; then
+              echo "::error::Release or draft already exists for first attempt: $RELEASE_TAG"
+              exit 1
+            fi
+
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --verify-tag \
+              --target "$RELEASE_SHA" \
+              --title "Mkrate $RELEASE_TAG" \
+              --notes-file "$marked_notes"
+
+            if [[ ! "$DRAFT_VISIBILITY_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] ||
+               [[ ! "$DRAFT_VISIBILITY_DELAY_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Draft visibility polling bounds must be positive integers"
+              exit 1
+            fi
+
+            for (( lookup_attempt = 1; lookup_attempt <= DRAFT_VISIBILITY_MAX_ATTEMPTS; lookup_attempt++ )); do
+              match_count="$(find_release)"
+              if [[ "$match_count" == "1" && -f "$release_json" ]]; then
+                echo "Draft became visible on lookup attempt $lookup_attempt/$DRAFT_VISIBILITY_MAX_ATTEMPTS"
+                break
+              fi
+              if [[ "$match_count" != "0" ]]; then
+                echo "::error::Unexpected exact-tag release count while polling: $match_count"
+                exit 1
+              fi
+              if (( lookup_attempt == DRAFT_VISIBILITY_MAX_ATTEMPTS )); then
+                echo "::error::Timed out waiting for draft visibility after $DRAFT_VISIBILITY_MAX_ATTEMPTS attempts"
+                exit 1
+              fi
+              echo "Draft not visible yet (attempt $lookup_attempt/$DRAFT_VISIBILITY_MAX_ATTEMPTS); retrying in ${DRAFT_VISIBILITY_DELAY_SECONDS}s"
+              sleep "$DRAFT_VISIBILITY_DELAY_SECONDS"
+            done
+          fi
+
+          if [[ "$match_count" != "1" || ! -f "$release_json" ]]; then
+            echo "::error::Expected exactly one draft for $RELEASE_TAG, found $match_count"
+            exit 1
+          fi
+
+          if (( RUN_ATTEMPT > 1 )); then
+            read -r recovered_id recovered_draft recovered_published_at < <(
+              python3 - "$release_json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          print(release.get("id", ""), str(release.get("draft")).lower(), release.get("published_at") or "null")
+          PY
+            )
+            if [[ "$recovered_draft" != "true" || "$recovered_published_at" != "null" ]]; then
+              echo "::error::Release id=$recovered_id is already public. Never re-run builders or mutate it; verify that exact numeric ID/tag/target/body/assets/latest state, then escalate any mismatch for manual authorization."
+              exit 1
+            fi
+          fi
+
+          python3 - "$release_json" "$marked_notes" "$RELEASE_TAG" "$RELEASE_SHA" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          expected_body = Path(sys.argv[2]).read_text()
+          expected_tag = sys.argv[3]
+          expected_sha = sys.argv[4]
+          checks = {
+              "tag_name": release.get("tag_name") == expected_tag,
+              "name": release.get("name") == f"Mkrate {expected_tag}",
+              "target_commitish": release.get("target_commitish") == expected_sha,
+              "body": (release.get("body") or "") == expected_body,
+              "draft": release.get("draft") is True,
+              "prerelease": release.get("prerelease") is False,
+              "published_at": release.get("published_at") is None,
+              "id": isinstance(release.get("id"), int) and release["id"] > 0,
+          }
+          failures = [name for name, ok in checks.items() if not ok]
+          if failures:
+              raise SystemExit(f"Release metadata mismatch: {', '.join(failures)}")
+          PY
+
+          release_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$release_json")"
+          if (( RUN_ATTEMPT > 1 )); then
+            while IFS= read -r asset_id; do
+              [[ -z "$asset_id" ]] && continue
+              echo "Deleting partial draft asset id=$asset_id"
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" --jq '.[].id')
+          fi
+
+          remaining_assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" --jq 'length')"
+          if [[ "$remaining_assets" != "0" ]]; then
+            echo "::error::Draft asset cleanup incomplete; $remaining_assets assets remain"
+            exit 1
+          fi
+          echo "run_attempt=$RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  build-linux-x64:
+    name: Build Linux x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: prepare-release
+
+    steps:
+      - name: Require preparation from this attempt
+        shell: bash
+        env:
+          PREPARE_ATTEMPT: ${{ needs.prepare-release.outputs.run_attempt }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$PREPARE_ATTEMPT" != "$CURRENT_ATTEMPT" ]]; then
+            echo "::error::Retry must use Re-run all jobs so draft cleanup runs before every builder"
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build AppImage
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash apps/electron/scripts/build-linux.sh x64
+
+      - name: Upload Linux release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+
+          files=(
+            apps/electron/release/Mkrate-x64.AppImage
+            apps/electron/release/latest-linux.yml
+          )
+          for file in "${files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Missing Linux release asset: $file"
+              exit 1
+            fi
+            name="${file##*/}"
+            [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::Unsafe asset name: $name"; exit 1; }
+            response="$RUNNER_TEMP/upload-$name.json"
+            code="$(curl --silent --show-error --connect-timeout 30 --max-time 1800 \
+              --output "$response" --write-out '%{http_code}' --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name")"
+            if [[ "$code" != "201" ]]; then cat "$response"; echo "::error::Asset upload failed for $name (HTTP $code)"; exit 1; fi
+          done
+
+  build-macos-arm64:
+    name: Build macOS arm64
+    runs-on: macos-latest
+    timeout-minutes: 120
+    needs: prepare-release
+
+    steps:
+      - name: Require preparation from this attempt
+        shell: bash
+        env:
+          PREPARE_ATTEMPT: ${{ needs.prepare-release.outputs.run_attempt }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$PREPARE_ATTEMPT" != "$CURRENT_ATTEMPT" ]]; then
+            echo "::error::Retry must use Re-run all jobs so draft cleanup runs before every builder"
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build DMG and updater ZIP
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash apps/electron/scripts/build-dmg.sh arm64
+
+      - name: Upload macOS arm64 release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+
+          files=(
+            apps/electron/release/Mkrate-arm64.dmg
+            apps/electron/release/Mkrate-arm64.zip
+            apps/electron/release/Mkrate-arm64.dmg.blockmap
+            apps/electron/release/Mkrate-arm64.zip.blockmap
+            apps/electron/release/latest-mac.yml
+          )
+          for file in "${files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Missing macOS arm64 release asset: $file"
+              exit 1
+            fi
+            name="${file##*/}"
+            [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::Unsafe asset name: $name"; exit 1; }
+            response="$RUNNER_TEMP/upload-$name.json"
+            code="$(curl --silent --show-error --connect-timeout 30 --max-time 1800 \
+              --output "$response" --write-out '%{http_code}' --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name")"
+            if [[ "$code" != "201" ]]; then cat "$response"; echo "::error::Asset upload failed for $name (HTTP $code)"; exit 1; fi
+          done
+
+  build-macos-x64:
+    name: Build macOS x64 assets
+    runs-on: macos-latest
+    timeout-minutes: 120
+    needs: prepare-release
+
+    steps:
+      - name: Require preparation from this attempt
+        shell: bash
+        env:
+          PREPARE_ATTEMPT: ${{ needs.prepare-release.outputs.run_attempt }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$PREPARE_ATTEMPT" != "$CURRENT_ATTEMPT" ]]; then
+            echo "::error::Retry must use Re-run all jobs so draft cleanup runs before every builder"
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build DMG and updater ZIP
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash apps/electron/scripts/build-dmg.sh x64
+
+      - name: Upload macOS x64 release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+
+          # A single latest-mac.yml is published by the arm64 job. The x64
+          # artifacts remain available for manual Intel Mac installation.
+          files=(
+            apps/electron/release/Mkrate-x64.dmg
+            apps/electron/release/Mkrate-x64.zip
+            apps/electron/release/Mkrate-x64.dmg.blockmap
+            apps/electron/release/Mkrate-x64.zip.blockmap
+          )
+          for file in "${files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Missing macOS x64 release asset: $file"
+              exit 1
+            fi
+            name="${file##*/}"
+            [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::Unsafe asset name: $name"; exit 1; }
+            response="$RUNNER_TEMP/upload-$name.json"
+            code="$(curl --silent --show-error --connect-timeout 30 --max-time 1800 \
+              --output "$response" --write-out '%{http_code}' --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name")"
+            if [[ "$code" != "201" ]]; then cat "$response"; echo "::error::Asset upload failed for $name (HTTP $code)"; exit 1; fi
+          done
+
+  build-windows-x64:
+    name: Build Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    needs: prepare-release
+
+    steps:
+      - name: Require preparation from this attempt
+        shell: pwsh
+        env:
+          PREPARE_ATTEMPT: ${{ needs.prepare-release.outputs.run_attempt }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if ($env:PREPARE_ATTEMPT -ne $env:CURRENT_ATTEMPT) {
+            throw "Retry must use Re-run all jobs so draft cleanup runs before every builder"
+          }
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build NSIS installer
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File apps/electron/scripts/build-win.ps1
+
+      - name: Upload Windows release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $files = @(
+            "apps/electron/release/Mkrate-x64.exe",
+            "apps/electron/release/Mkrate-x64.exe.blockmap",
+            "apps/electron/release/latest.yml"
+          )
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "Missing Windows release asset: $file"
+            }
+            $name = [IO.Path]::GetFileName($file)
+            if ($name -notmatch '^[A-Za-z0-9._-]+$') {
+              throw "Unsafe asset name: $name"
+            }
+            $encodedName = [Uri]::EscapeDataString($name)
+            $uri = "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets?name=$encodedName"
+            $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType "application/octet-stream" -InFile $file
+            if (-not $response.id -or $response.name -ne $name) {
+              throw "Unexpected upload response for $name"
+            }
+          }
+
+  verify-release-assets:
+    name: Verify release assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - prepare-release
+      - build-linux-x64
+      - build-macos-arm64
+      - build-macos-x64
+      - build-windows-x64
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate release tag and metadata
+        shell: bash
+        env:
+          PINNED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags origin
+          release_sha="$(git rev-parse "$RELEASE_TAG^{}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          if [[ "$checkout_sha" != "$release_sha" ]]; then
+            echo "::error::Verification checkout ($checkout_sha) does not match peeled tag commit ($release_sha)"
+            exit 1
+          fi
+          pinned_sha="$(git rev-parse "$PINNED_SHA^{}")"
+          if [[ "$pinned_sha" != "$release_sha" ]]; then
+            echo "::error::Peeled tag commit ($release_sha) does not match pinned run SHA ($pinned_sha)"
+            exit 1
+          fi
+
+          expected_version="${RELEASE_TAG#v}"
+          notes_file="apps/electron/resources/release-notes/${expected_version}.md"
+          if [[ ! -f "$notes_file" ]]; then
+            echo "::error::Missing release notes: $notes_file"
+            exit 1
+          fi
+          {
+            echo "EXPECTED_VERSION=$expected_version"
+            echo "NOTES_FILE=$notes_file"
+            echo "RELEASE_SHA=$release_sha"
+          } >> "$GITHUB_ENV"
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/release.json"
+          actual_release_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/release.json")"
+          if [[ "$actual_release_id" != "$RELEASE_ID" ]]; then
+            echo "::error::Numeric release ID mismatch: $actual_release_id != $RELEASE_ID"
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > "$RUNNER_TEMP/assets.json"
+
+      - name: Download release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_dir="$RUNNER_TEMP/release-assets"
+          mkdir -p "$asset_dir"
+          python3 - "$RUNNER_TEMP/assets.json" <<'PY' > "$RUNNER_TEMP/assets.tsv"
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          for asset in json.loads(Path(sys.argv[1]).read_text()):
+              name = asset.get("name", "")
+              if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+                  raise SystemExit(f"Unsafe asset name: {name!r}")
+              print(f"{asset['id']}\t{name}")
+          PY
+          while IFS=$'\t' read -r asset_id asset_name; do
+            gh api \
+              --header 'Accept: application/octet-stream' \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+              > "$asset_dir/$asset_name"
+          done < "$RUNNER_TEMP/assets.tsv"
+
+      - name: Verify exact draft metadata and release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - "$RUNNER_TEMP/release.json" "$NOTES_FILE" "$RELEASE_TAG" "$RELEASE_SHA" "$RELEASE_ID" "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          notes_body = Path(sys.argv[2]).read_text()
+          expected_tag = sys.argv[3]
+          expected_sha = sys.argv[4]
+          expected_id = int(sys.argv[5])
+          expected_body = notes_body + ("" if notes_body.endswith("\n") else "\n") + f"\n<!-- mkrate-release-run:{sys.argv[6]} -->\n"
+          checks = {
+              "id": release.get("id") == expected_id,
+              "tag": release.get("tag_name") == expected_tag,
+              "title": release.get("name") == f"Mkrate {expected_tag}",
+              "target": release.get("target_commitish") == expected_sha,
+              "body": (release.get("body") or "") == expected_body,
+              "draft": release.get("draft") is True,
+              "not_prerelease": release.get("prerelease") is False,
+              "not_published": release.get("published_at") is None,
+          }
+          failures = [name for name, ok in checks.items() if not ok]
+          if failures:
+              raise SystemExit(f"Draft release metadata mismatch before publication: {', '.join(failures)}")
+          PY
+
+          bun scripts/verify-release-artifacts.ts \
+            --asset-dir "$RUNNER_TEMP/release-assets" \
+            --expected-version "$EXPECTED_VERSION" \
+            --api-assets "$RUNNER_TEMP/assets.json"
+
+  publish-release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - prepare-release
+      - verify-release-assets
+    env:
+      RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+
+    steps:
+      # Recovery invariant: a stale attempt never reaches PATCH. If the numeric
+      # release is public, perform only read-only exact-ID/tag/target/body/
+      # assets/latest verification and manually escalate any mismatch.
+      - name: Require verified preparation from this attempt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREPARE_ATTEMPT: ${{ needs.prepare-release.outputs.run_attempt }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$PREPARE_ATTEMPT" == "$CURRENT_ATTEMPT" ]]; then
+            exit 0
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/rerun-release.json"
+          read -r release_id draft published_at < <(
+            python3 - "$RUNNER_TEMP/rerun-release.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          print(release.get("id", ""), str(release.get("draft")).lower(), release.get("published_at") or "null")
+          PY
+          )
+          if [[ "$draft" != "true" || "$published_at" != "null" ]]; then
+            echo "::error::Release id=$release_id is already public. Do not rerun or mutate it; perform read-only exact-ID/tag/target/body/assets/latest verification and escalate any mismatch for manual authorization."
+          else
+            echo "::error::Publication cannot reuse preparation from attempt $PREPARE_ATTEMPT. Use Re-run all jobs so the owned draft is revalidated and partial assets are cleaned before builders run."
+          fi
+          exit 1
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Publish GitHub Release by numeric ID
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/prepublish-release.json"
+          python3 - "$RUNNER_TEMP/prepublish-release.json" "$RELEASE_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          expected_id = int(sys.argv[2])
+          if release.get("id") != expected_id or release.get("draft") is not True or release.get("published_at") is not None:
+              raise SystemExit(
+                  f"Numeric release id={expected_id} is no longer the verified draft; refuse PATCH and use read-only exact-ID verification/manual escalation"
+              )
+          PY
+
+          expected_version="${RELEASE_TAG#v}"
+          notes_file="apps/electron/resources/release-notes/${expected_version}.md"
+          publish_json="$RUNNER_TEMP/publish-release.json"
+          python3 - "$notes_file" "$RELEASE_TAG" "$publish_json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = {
+              "name": f"Mkrate {sys.argv[2]}",
+              "body": Path(sys.argv[1]).read_text(),
+              "draft": False,
+              "prerelease": False,
+              "make_latest": "true",
+          }
+          Path(sys.argv[3]).write_text(json.dumps(payload))
+          PY
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            --input "$publish_json" > "$RUNNER_TEMP/published-release.json"
+
+          verified=false
+          for attempt in {1..12}; do
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/public-release.json" \
+              && gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/latest-release.json"; then
+              if python3 - "$RUNNER_TEMP/public-release.json" "$RUNNER_TEMP/latest-release.json" "$notes_file" "$RELEASE_TAG" "$RELEASE_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text())
+          latest = json.loads(Path(sys.argv[2]).read_text())
+          expected_body = Path(sys.argv[3]).read_text()
+          expected_tag = sys.argv[4]
+          expected_id = int(sys.argv[5])
+          checks = {
+              "id": release.get("id") == expected_id,
+              "tag": release.get("tag_name") == expected_tag,
+              "title": release.get("name") == f"Mkrate {expected_tag}",
+              "body": (release.get("body") or "") == expected_body,
+              "published": release.get("draft") is False and release.get("published_at") is not None,
+              "not_prerelease": release.get("prerelease") is False,
+              "latest": latest.get("id") == expected_id and latest.get("tag_name") == expected_tag,
+          }
+          failures = [name for name, ok in checks.items() if not ok]
+          if failures:
+              raise SystemExit(f"Published release verification pending: {', '.join(failures)}")
+          PY
+              then
+                verified=true
+                break
+              fi
+            fi
+            echo "Published release not fully visible yet (attempt $attempt/12)"
+            sleep 5
+          done
+          if [[ "$verified" != "true" ]]; then
+            echo "::error::Published release did not become exact/latest within 60 seconds"
+            exit 1
+          fi

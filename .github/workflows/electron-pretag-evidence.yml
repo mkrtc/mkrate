@@ -1,0 +1,311 @@
+name: Electron Pre-tag Packaging Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Exact commit SHA to verify (a ref is accepted, but the run records and pins its resolved SHA)'
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electron-pretag-evidence-${{ inputs.ref }}
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: '1.3.10'
+
+jobs:
+  prepare-evidence:
+    name: Pin selected commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      commit_sha: ${{ steps.pin.outputs.commit_sha }}
+      expected_version: ${{ steps.pin.outputs.expected_version }}
+
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - name: Resolve immutable evidence commit
+        id: pin
+        shell: bash
+        env:
+          SELECTED_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+
+          commit_sha="$(git rev-parse HEAD)"
+          if [[ ! "$commit_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Selected ref did not resolve to a full commit SHA: $commit_sha"
+            exit 1
+          fi
+          if [[ "$SELECTED_REF" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "${SELECTED_REF,,}" != "$commit_sha" ]]; then
+            echo "::error::Exact selected SHA ($SELECTED_REF) resolved to a different commit ($commit_sha)"
+            exit 1
+          fi
+
+          expected_version="$(python3 -c 'import json; print(json.load(open("apps/electron/package.json"))["version"])')"
+          if [[ ! "$expected_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Electron package version must be MAJOR.MINOR.PATCH: $expected_version"
+            exit 1
+          fi
+          notes_file="apps/electron/resources/release-notes/${expected_version}.md"
+          if [[ ! -f "$notes_file" ]]; then
+            echo "::error::Release notes file does not exist at selected commit: $notes_file"
+            exit 1
+          fi
+
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+          echo "expected_version=$expected_version" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Pinned pre-tag packaging evidence"
+            echo "- Selected ref: \`$SELECTED_REF\`"
+            echo "- Immutable commit: \`$commit_sha\`"
+            echo "- Version: \`$expected_version\`"
+            echo "- This workflow creates no tag, draft, or release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-linux-x64:
+    name: Build Linux x64 evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: prepare-evidence
+
+    steps:
+      - name: Checkout pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare-evidence.outputs.commit_sha }}
+
+      - name: Require pinned commit
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::Builder checkout is not the pinned evidence SHA"; exit 1; }
+
+      - name: Setup exact Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build AppImage
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash apps/electron/scripts/build-linux.sh x64
+
+      - name: Upload Linux evidence assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mkrate-evidence-linux-x64
+          path: |
+            apps/electron/release/Mkrate-x64.AppImage
+            apps/electron/release/latest-linux.yml
+          if-no-files-found: error
+          retention-days: 30
+
+  build-macos-arm64:
+    name: Build macOS arm64 evidence
+    runs-on: macos-latest
+    timeout-minutes: 120
+    needs: prepare-evidence
+
+    steps:
+      - name: Checkout pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare-evidence.outputs.commit_sha }}
+
+      - name: Require pinned commit
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::Builder checkout is not the pinned evidence SHA"; exit 1; }
+
+      - name: Setup exact Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build DMG and updater ZIP
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash apps/electron/scripts/build-dmg.sh arm64
+
+      - name: Upload macOS arm64 evidence assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mkrate-evidence-macos-arm64
+          path: |
+            apps/electron/release/Mkrate-arm64.dmg
+            apps/electron/release/Mkrate-arm64.zip
+            apps/electron/release/Mkrate-arm64.dmg.blockmap
+            apps/electron/release/Mkrate-arm64.zip.blockmap
+            apps/electron/release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 30
+
+  build-macos-x64:
+    name: Build macOS x64 evidence
+    runs-on: macos-latest
+    timeout-minutes: 120
+    needs: prepare-evidence
+
+    steps:
+      - name: Checkout pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare-evidence.outputs.commit_sha }}
+
+      - name: Require pinned commit
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::Builder checkout is not the pinned evidence SHA"; exit 1; }
+
+      - name: Setup exact Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build DMG and updater ZIP
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash apps/electron/scripts/build-dmg.sh x64
+
+      - name: Upload macOS x64 evidence assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mkrate-evidence-macos-x64
+          path: |
+            apps/electron/release/Mkrate-x64.dmg
+            apps/electron/release/Mkrate-x64.zip
+            apps/electron/release/Mkrate-x64.dmg.blockmap
+            apps/electron/release/Mkrate-x64.zip.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+  build-windows-x64:
+    name: Build Windows x64 evidence
+    runs-on: windows-latest
+    timeout-minutes: 120
+    needs: prepare-evidence
+
+    steps:
+      - name: Checkout pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare-evidence.outputs.commit_sha }}
+
+      - name: Require pinned commit
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          if ((git rev-parse HEAD) -ne $env:EXPECTED_SHA) {
+            throw "Builder checkout is not the pinned evidence SHA"
+          }
+
+      - name: Setup exact Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build NSIS installer
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File apps/electron/scripts/build-win.ps1
+
+      - name: Upload Windows evidence assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mkrate-evidence-windows-x64
+          path: |
+            apps/electron/release/Mkrate-x64.exe
+            apps/electron/release/Mkrate-x64.exe.blockmap
+            apps/electron/release/latest.yml
+          if-no-files-found: error
+          retention-days: 30
+
+  verify-evidence:
+    name: Aggregate and verify exact evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - prepare-evidence
+      - build-linux-x64
+      - build-macos-arm64
+      - build-macos-x64
+      - build-windows-x64
+
+    steps:
+      - name: Checkout pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare-evidence.outputs.commit_sha }}
+
+      - name: Require pinned commit
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::Verifier checkout is not the pinned evidence SHA"; exit 1; }
+
+      - name: Setup exact Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download all platform evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: mkrate-evidence-*
+          path: ${{ runner.temp }}/mkrate-release-assets
+          merge-multiple: true
+
+      - name: Verify exact 14-asset evidence set
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare-evidence.outputs.expected_version }}
+          EVIDENCE_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          bun scripts/verify-release-artifacts.ts \
+            --asset-dir "$RUNNER_TEMP/mkrate-release-assets" \
+            --expected-version "$EXPECTED_VERSION"
+          {
+            echo "### Verified pre-tag packaging evidence"
+            echo "- Immutable commit: \`$EVIDENCE_SHA\`"
+            echo "- Version: \`$EXPECTED_VERSION\`"
+            echo "- Exact assets: 14"
+            echo "- Updater manifests: 3 (macOS arm64-primary)"
+            echo "- Publication side effects: none"
+          } >> "$GITHUB_STEP_SUMMARY"
