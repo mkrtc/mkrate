@@ -19,7 +19,8 @@
     "./handlers/rpc/*": "./src/handlers/rpc/*.ts",
     "./sessions": "./src/sessions/index.ts",
     "./tasks": "./src/tasks/index.ts",
-    "./webui": "./src/webui/index.ts"
+    "./webui": "./src/webui/index.ts",
+    "./bridge": "./src/bridge/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -27,6 +28,7 @@
   "dependencies": {
     "@craft-agent/core": "workspace:*",
     "@craft-agent/shared": "workspace:*",
+    "@mkrate/bridge-protocol": "file:../../vendor/mkrate-bridge-protocol-1.0.0.tgz",
     "jose": "^6.0.0",
     "ws": "^8.19.0",
     "sharp": "0.34.5",

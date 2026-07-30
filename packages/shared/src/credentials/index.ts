@@ -25,6 +25,6 @@
 export { CredentialManager, getCredentialManager } from './manager.ts';
 export type { CredentialManagerOptions } from './manager.ts';
 export type { CredentialId, CredentialType, StoredCredential } from './types.ts';
-export { CredentialStoreError, credentialIdToAccount, accountToCredentialId, SOURCE_CREDENTIAL_TYPES, MEMORY_CREDENTIAL_TYPES, MEMORY_SAGA_CREDENTIAL_TYPES } from './types.ts';
+export { CredentialStoreError, credentialIdToAccount, accountToCredentialId, SOURCE_CREDENTIAL_TYPES, MEMORY_CREDENTIAL_TYPES, BRIDGE_CREDENTIAL_TYPES, MEMORY_SAGA_CREDENTIAL_TYPES } from './types.ts';
 export type { CredentialStoreErrorCode } from './types.ts';
 export type { CredentialBackend } from './backends/types.ts';

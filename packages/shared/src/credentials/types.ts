@@ -38,6 +38,11 @@ export type CredentialType =
   | 'messaging_bearer'   // Platform tokens (e.g., Telegram bot token)
   // Memory connection credentials (keyed by connection UUID)
   | 'memory_api_key'     // API key for a Qdrant Memory connection
+  // Trusted Bridge credentials (keyed by Bridge profile UUID). This is the
+  // persisted per-instance Bridge token ONLY. There is deliberately NO persisted
+  // enrollment/bootstrap token type — a bootstrap/pairing code is one-shot and
+  // must never be written to disk.
+  | 'bridge_instance_token' // Per-instance Bridge token, scoped by bridgeProfileId
   // Internal A5 saga staging/quarantine identities (keyed by saga UUID + slot).
   // These hold before/after secret material for an in-flight saga so a crash is
   // recoverable. They are encrypted at rest like any credential, and are
@@ -61,6 +66,7 @@ const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'source_basic',
   'messaging_bearer',
   'memory_api_key',
+  'bridge_instance_token',
   'memory_saga_stage',
   'memory_saga_quarantine',
 ] as const;
@@ -89,6 +95,10 @@ export interface CredentialId {
   // Memory connection-scoped format
   /** Memory connection UUID for memory_api_key credentials */
   memoryConnectionId?: string;
+
+  // Trusted Bridge-scoped format
+  /** Bridge profile UUID for bridge_instance_token credentials */
+  bridgeProfileId?: string;
 
   // Internal A5 saga staging/quarantine format
   /** Saga UUID for memory_saga_stage / memory_saga_quarantine credentials */
@@ -188,6 +198,16 @@ export const MEMORY_CREDENTIAL_TYPES = [
   'memory_api_key',
 ] as const;
 
+/** Trusted Bridge credential types (persisted per-instance token only). */
+export const BRIDGE_CREDENTIAL_TYPES = [
+  'bridge_instance_token',
+] as const;
+
+/** Check if type is a Trusted Bridge credential */
+function isBridgeCredential(type: CredentialType): boolean {
+  return (BRIDGE_CREDENTIAL_TYPES as readonly string[]).includes(type);
+}
+
 /** Internal A5 saga staging/quarantine credential types (never listed generically). */
 export const MEMORY_SAGA_CREDENTIAL_TYPES = [
   'memory_saga_stage',
@@ -241,6 +261,19 @@ export function credentialIdToAccount(id: CredentialId): string {
     const canonical = id.memoryConnectionId ? toCanonicalUuid(id.memoryConnectionId) : null;
     if (!canonical) {
       throw new Error('memory_api_key credential requires a valid UUID memoryConnectionId');
+    }
+    parts.push(canonical);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
+  // Trusted Bridge-scoped format:
+  // bridge_instance_token::{bridgeProfileId}
+  // The profile id is a UUID (canonicalized to lowercase), so it never contains
+  // the "::" delimiter and case variants map to the same account.
+  if (isBridgeCredential(id.type)) {
+    const canonical = id.bridgeProfileId ? toCanonicalUuid(id.bridgeProfileId) : null;
+    if (!canonical) {
+      throw new Error('bridge_instance_token credential requires a valid UUID bridgeProfileId');
     }
     parts.push(canonical);
     return parts.join(CREDENTIAL_DELIMITER);
@@ -376,6 +409,14 @@ export function accountToCredentialId(account: string): CredentialId | null {
     return { type, memoryConnectionId: parts[1] };
   }
 
+  // Trusted Bridge-scoped format:
+  // bridge_instance_token::{bridgeProfileId} — second segment must be a canonical
+  // (lowercase) UUID; case variants are rejected so they cannot masquerade as a
+  // distinct account.
+  if (isBridgeCredential(type) && parts.length === 2 && isCanonicalUuid(parts[1])) {
+    return { type, bridgeProfileId: parts[1] };
+  }
+
   // Internal saga staging format:
   // memory_saga_stage::{sagaId}::{slot} — sagaId must be canonical UUID.
   if (isMemorySagaStage(type) && parts.length === 3 && isCanonicalUuid(parts[1])
@@ -408,8 +449,8 @@ export function accountToCredentialId(account: string): CredentialId | null {
     return { type, workspaceId: parts[1], name: parts[2] };
   }
 
-  // Memory credentials are always connection-scoped (UUID) — never "global".
-  if (parts.length === 2 && parts[1] === 'global' && !isMemoryCredential(type)) {
+  // Memory and Bridge credentials are always UUID-scoped — never "global".
+  if (parts.length === 2 && parts[1] === 'global' && !isMemoryCredential(type) && !isBridgeCredential(type)) {
     return { type };
   }
 

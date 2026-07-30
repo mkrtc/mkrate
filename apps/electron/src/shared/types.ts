@@ -27,6 +27,19 @@ import type { PermissionMode } from '@craft-agent/shared/agent/modes';
 export type { PermissionMode };
 export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
+import type {
+  DesktopBridgeBindingMetadata,
+  DesktopBridgeCommandCapability,
+  DesktopBridgeSafeState,
+  PairingRejectReason,
+} from '@craft-agent/server-core/bridge';
+export type {
+  DesktopBridgeBindingMetadata,
+  DesktopBridgeCommandCapability,
+  DesktopBridgeSafeState,
+  PairingRejectReason,
+};
+
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
 export type { ThinkingLevel };
@@ -249,6 +262,14 @@ import type {
   ProjectMemorySpaceDeleteRequest,
 } from '@craft-agent/shared/protocol'
 
+export interface BridgeProfileUpdateRequest {
+  readonly url: string
+  readonly displayName: string
+  readonly enabled?: boolean
+  /** Transient enrollment bootstrap. Never returned or persisted. */
+  readonly enrollmentToken?: string
+}
+
 export interface ElectronAPI {
   // Session management
   getSessions(): Promise<Session[]>
@@ -295,6 +316,16 @@ export interface ElectronAPI {
   relaunchApp(): Promise<void>
   removeWorkspace(workspaceId: string): Promise<WorkspaceRemovalResult>
   invokeOnServer(url: string, token: string, channel: string, ...args: any[]): Promise<any>
+
+  // Trusted Bridge admin — direct local Electron IPC only (never WS RPC)
+  getBridgeState(): Promise<DesktopBridgeSafeState>
+  updateBridgeProfile(request: BridgeProfileUpdateRequest | null): Promise<DesktopBridgeSafeState>
+  openBridgePairing(allowManualCode?: boolean): Promise<DesktopBridgeSafeState>
+  closeBridgePairing(): Promise<DesktopBridgeSafeState>
+  approveBridgePairing(capabilities: readonly DesktopBridgeCommandCapability[]): Promise<DesktopBridgeSafeState>
+  rejectBridgePairing(reason: PairingRejectReason): Promise<DesktopBridgeSafeState>
+  listBridgeBindings(): Promise<readonly DesktopBridgeBindingMetadata[]>
+  revokeBridgeBinding(bindingId: string): Promise<DesktopBridgeSafeState>
 
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>

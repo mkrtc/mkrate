@@ -503,6 +503,65 @@ export class CredentialManager {
   }
 
   // ============================================================
+  // Trusted Bridge Instance Token
+  //
+  // Keyed by Bridge profile UUID: bridge_instance_token::{bridgeProfileId}.
+  // This is the ONLY persisted Bridge secret. A bootstrap/enrollment/pairing
+  // code is one-shot and intentionally has no persisted representation here —
+  // there is no set*BootstrapToken helper and no such credential type. The
+  // non-secret Bridge profile is stored separately via config/bridge-config.ts.
+  // ============================================================
+
+  private assertBridgeProfileId(bridgeProfileId: string): void {
+    if (!isUuid(bridgeProfileId)) {
+      throw new Error(`Invalid Bridge profile id: ${bridgeProfileId}`);
+    }
+  }
+
+  /** Get the per-instance Bridge token for a profile, or null if none is stored. */
+  async getBridgeInstanceToken(bridgeProfileId: string): Promise<string | null> {
+    await this.ensureInitialized();
+    this.assertBridgeProfileId(bridgeProfileId);
+    const cred = await this.getInternal({ type: 'bridge_instance_token', bridgeProfileId }, { strict: true });
+    return cred?.value || null;
+  }
+
+  /** Store the per-instance Bridge token for a profile. */
+  async setBridgeInstanceToken(bridgeProfileId: string, token: string): Promise<void> {
+    this.assertBridgeProfileId(bridgeProfileId);
+    // Reject empty and whitespace-only tokens (a blank token is never valid).
+    if (!token || token.trim().length === 0) throw new Error('Bridge instance token must not be empty');
+    await this.set({ type: 'bridge_instance_token', bridgeProfileId }, { value: token });
+  }
+
+  /** Delete the per-instance Bridge token for a profile. Returns true if one was removed. */
+  async deleteBridgeInstanceToken(bridgeProfileId: string): Promise<boolean> {
+    this.assertBridgeProfileId(bridgeProfileId);
+    return this.delete({ type: 'bridge_instance_token', bridgeProfileId });
+  }
+
+  /** Whether a Bridge profile has an instance token stored. */
+  async hasBridgeInstanceToken(bridgeProfileId: string): Promise<boolean> {
+    return !!(await this.getBridgeInstanceToken(bridgeProfileId));
+  }
+
+  /** List the canonical (lowercase) Bridge profile ids that have an instance token stored. */
+  async listBridgeInstanceTokenProfileIds(): Promise<string[]> {
+    await this.ensureInitialized();
+    const ids = await this.listInternal({ type: 'bridge_instance_token' }, { strict: true });
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const id of ids) {
+      const canonical = id.bridgeProfileId ? toCanonicalUuid(id.bridgeProfileId) : null;
+      if (canonical && !seen.has(canonical)) {
+        seen.add(canonical);
+        result.push(canonical);
+      }
+    }
+    return result;
+  }
+
+  // ============================================================
   // A5 Saga Staging / Quarantine (internal)
   //
   // Encrypted before/after secret material for an in-flight memory saga, plus

@@ -37,6 +37,7 @@ import type { ConfirmDialogSpec, FileDialogSpec, BrowserCapabilityRequest } from
 import type { RpcClient } from '@craft-agent/server-core/transport'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
 import type { ElectronAPI } from '../shared/types'
+import { BRIDGE_IPC_CHANNELS } from '../shared/bridge-ipc'
 
 function formatUnknownError(error: unknown, fallback = 'Unknown error'): string {
   if (error instanceof Error) return error.message || fallback
@@ -441,6 +442,17 @@ client.onConnectionStateChanged((state) => {
   ipcRenderer.on('transfer:progress', handler)
   return () => { ipcRenderer.removeListener('transfer:progress', handler) }
 }
+
+// Trusted Bridge admin — direct local Electron IPC only. Thin-client mode has
+// no authoritative local host and therefore no matching main-process handlers.
+;(api as ElectronAPI).getBridgeState = () => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.getState)
+;(api as ElectronAPI).updateBridgeProfile = (request) => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.updateProfile, request)
+;(api as ElectronAPI).openBridgePairing = (allowManualCode) => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.openPairing, allowManualCode)
+;(api as ElectronAPI).closeBridgePairing = () => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.closePairing)
+;(api as ElectronAPI).approveBridgePairing = (capabilities) => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.approvePairing, capabilities)
+;(api as ElectronAPI).rejectBridgePairing = (reason) => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.rejectPairing, reason)
+;(api as ElectronAPI).listBridgeBindings = () => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.listBindings)
+;(api as ElectronAPI).revokeBridgeBinding = (bindingId) => ipcRenderer.invoke(BRIDGE_IPC_CHANNELS.revokeBinding, bindingId)
 
 // System warnings — expose env-based flags set during main process startup
 // (preload-only: reads env var directly, no IPC round-trip needed)
