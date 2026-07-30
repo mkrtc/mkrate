@@ -113,6 +113,13 @@ unzip -o "$TEMP_DIR/${BUN_DOWNLOAD}.zip" -d "$TEMP_DIR"
 cp "$TEMP_DIR/${BUN_DOWNLOAD}/bun" "$ELECTRON_DIR/vendor/bun/"
 chmod +x "$ELECTRON_DIR/vendor/bun/bun"
 
+# 3a. Provision the target uv runtime required by packaged document tools.
+cd "$ROOT_DIR"
+bun run scripts/prepare-electron-uv.ts linux "$ARCH"
+UV_PATH="$ELECTRON_DIR/resources/bin/linux-${ARCH}/uv"
+require_path "$UV_PATH" "bundled uv runtime" "The checksummed uv bootstrap did not produce the target binary."
+chmod +x "$UV_PATH"
+
 # 4. Copy SDK from root node_modules (monorepo hoisting).
 # Since SDK 0.2.113: thin core + per-platform binary package.
 # See apps/electron/scripts/build-dmg.sh for the full rationale.

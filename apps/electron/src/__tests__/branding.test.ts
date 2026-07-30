@@ -214,12 +214,29 @@ describe('cross-platform reproducible packaging contracts', () => {
   const linuxScript = read(electronDir, 'scripts', 'build-linux.sh')
   const dmgScript = read(electronDir, 'scripts', 'build-dmg.sh')
   const winScript = read(electronDir, 'scripts', 'build-win.ps1')
+  const uvBootstrap = read(repoRoot, 'scripts', 'prepare-electron-uv.ts')
+  const commonBuild = read(repoRoot, 'scripts', 'build', 'common.ts')
 
   it('pins embedded Bun 1.3.10 and installs only from the frozen lockfile', () => {
     for (const script of [linuxScript, dmgScript, winScript]) {
       expect(script).toContain('1.3.10')
       expect(script).toContain('bun install --frozen-lockfile')
     }
+  })
+
+  it('downloads and requires a checksummed target uv runtime in every clean platform build', () => {
+    expect(linuxScript).toContain('prepare-electron-uv.ts linux "$ARCH"')
+    expect(linuxScript).toContain('resources/bin/linux-${ARCH}/uv')
+    expect(dmgScript).toContain('prepare-electron-uv.ts darwin "$ARCH"')
+    expect(dmgScript).toContain('resources/bin/darwin-${ARCH}/uv')
+    expect(winScript).toContain('prepare-electron-uv.ts win32 x64')
+    expect(winScript).toContain('resources\\bin\\win32-x64\\uv.exe')
+    expect(uvBootstrap).toContain('await downloadUv(config)')
+    expect(commonBuild).toContain('uv checksum verification failed')
+    expect(builder).toContain('resources/bin/linux-x64/**/*')
+    expect(builder).toContain('resources/bin/darwin-arm64/**/*')
+    expect(builder).toContain('resources/bin/darwin-x64/**/*')
+    expect(builder).toContain('resources/bin/win32-x64/**')
   })
 
   it('verifies cross-architecture npm tarballs against registry dist.integrity before extraction', () => {

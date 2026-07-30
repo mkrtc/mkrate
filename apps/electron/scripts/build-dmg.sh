@@ -121,6 +121,13 @@ unzip -o "$TEMP_DIR/${BUN_DOWNLOAD}.zip" -d "$TEMP_DIR"
 cp "$TEMP_DIR/${BUN_DOWNLOAD}/bun" "$ELECTRON_DIR/vendor/bun/"
 chmod +x "$ELECTRON_DIR/vendor/bun/bun"
 
+# 3a. Provision the target uv runtime required by packaged document tools.
+cd "$ROOT_DIR"
+bun run scripts/prepare-electron-uv.ts darwin "$ARCH"
+UV_PATH="$ELECTRON_DIR/resources/bin/darwin-${ARCH}/uv"
+require_path "$UV_PATH" "bundled uv runtime" "The checksummed uv bootstrap did not produce the target binary."
+chmod +x "$UV_PATH"
+
 # 4. Copy SDK from root node_modules (monorepo hoisting)
 # Note: The SDK is hoisted to root node_modules by the package manager.
 # We copy it here because electron-builder only sees apps/electron/.

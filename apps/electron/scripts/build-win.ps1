@@ -154,6 +154,21 @@ try {
     Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
 }
 
+# 3a. Provision the target uv runtime required by packaged document tools.
+Push-Location $RootDir
+try {
+    bun run scripts/prepare-electron-uv.ts win32 x64
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bundled uv bootstrap failed with exit code $LASTEXITCODE"
+    }
+} finally {
+    Pop-Location
+}
+$UvPath = "$ElectronDir\resources\bin\win32-x64\uv.exe"
+if (-not (Test-Path $UvPath)) {
+    throw "Bundled uv runtime not found at $UvPath"
+}
+
 # 4. Copy SDK from root node_modules (monorepo hoisting).
 # Since SDK 0.2.113: thin core + per-platform binary package.
 # See apps/electron/scripts/build-dmg.sh for the full rationale.
