@@ -243,6 +243,16 @@ describe('cross-platform reproducible packaging contracts', () => {
     expect(builder).toContain('resources/bin/win32-x64/**')
   })
 
+  it('builds and validates exactly the requested macOS architecture', () => {
+    const macConfig = builder.slice(builder.indexOf('\nmac:'), builder.indexOf('\ndmg:'))
+
+    expect(macConfig).toContain('target:\n    - dmg\n    - zip')
+    expect(macConfig).not.toContain('arch:')
+    expect(dmgScript).toContain('BUILDER_ARGS="--mac --${ARCH}"')
+    expect(dmgScript).toContain('[ "$ARCH" = "x64" ] && echo "mac" || echo "mac-${ARCH}"')
+    expect(dmgScript).toContain('release/${APP_BUNDLE_DIR}/Mkrate.app')
+  })
+
   it('verifies cross-architecture npm tarballs against registry dist.integrity before extraction', () => {
     for (const script of [linuxScript, dmgScript, winScript]) {
       expect(script).toContain('dist.integrity')

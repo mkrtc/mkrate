@@ -43,6 +43,18 @@ export const BUN_VERSION = 'bun-v1.3.10';
 export const UV_VERSION = '0.10.6';
 
 /**
+ * Match the stable uv version output emitted by official release archives.
+ * Some targets append immutable build metadata (`<git-sha> <build-date>`),
+ * while others report only the semantic version.
+ */
+export function isExpectedUvVersionOutput(output: string): boolean {
+  const escapedVersion = UV_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `^uv ${escapedVersion}(?: \\([0-9a-f]{7,40} \\d{4}-\\d{2}-\\d{2}\\))?$`,
+  ).test(output.trim());
+}
+
+/**
  * Get platform key for resources/bin folder naming.
  */
 export function getPlatformKey(platform: Platform, arch: Arch): string {
@@ -264,7 +276,7 @@ export async function downloadUv(config: BuildConfig): Promise<void> {
     const currentArch = process.arch === 'x64' || process.arch === 'arm64' ? process.arch : undefined;
     if (process.platform === platform && currentArch === arch) {
       const versionOutput = execSync(`\"${targetPath}\" --version`, { encoding: 'utf8' }).trim();
-      if (versionOutput !== `uv ${UV_VERSION}`) {
+      if (!isExpectedUvVersionOutput(versionOutput)) {
         throw new Error(`uv version mismatch: expected uv ${UV_VERSION}, found ${versionOutput}`);
       }
     }

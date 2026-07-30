@@ -299,7 +299,9 @@ if [ ! -f "$DMG_PATH" ]; then
 fi
 
 # Validate the staged bundle before accepting the matching DMG/ZIP names.
-APP_BUNDLE="$ELECTRON_DIR/release/mac-${ARCH}/Mkrate.app"
+# electron-builder uses `mac` for default x64 output and `mac-arm64` for arm64.
+APP_BUNDLE_DIR="$([ "$ARCH" = "x64" ] && echo "mac" || echo "mac-${ARCH}")"
+APP_BUNDLE="$ELECTRON_DIR/release/${APP_BUNDLE_DIR}/Mkrate.app"
 require_path "$APP_BUNDLE" "Mkrate ${ARCH} app bundle" "electron-builder did not stage the expected Mkrate.app bundle."
 echo "Verifying packaged sharp runtime graph..."
 cd "$ROOT_DIR"

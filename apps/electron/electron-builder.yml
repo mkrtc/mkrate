@@ -98,15 +98,12 @@ mac:
     # and prompt for permission. Without it the app is silently denied LAN access
     # and never appears in the privacy pane (craft-agents-oss#938).
     NSLocalNetworkUsageDescription: "Mkrate uses your local network to reach LAN addresses and devices you ask an agent to access, such as local servers or APIs."
+  # build-dmg.sh selects exactly one architecture per clean invocation.
+  # Do not list architectures here: electron-builder gives config-level arch
+  # arrays precedence over the script's --arm64/--x64 selector.
   target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
-    - target: zip
-      arch:
-        - arm64
-        - x64
+    - dmg
+    - zip
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
