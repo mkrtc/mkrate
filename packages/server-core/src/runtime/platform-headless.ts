@@ -1,3 +1,5 @@
+/// <reference path="../types/sharp.d.ts" />
+
 /**
  * Headless PlatformServices — runs under Bun without Electron.
  *

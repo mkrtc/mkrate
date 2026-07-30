@@ -1,6 +1,6 @@
 {
   "name": "craft-agent",
-  "version": "0.11.23",
+  "version": "0.0.1",
   "license": "Apache-2.0",
   "description": "Mkrate — a Claude Code-like desktop agent. Independent fork of Craft Agents.",
   "type": "module",
@@ -206,13 +206,24 @@
     "zod": "^4.0.0"
   },
   "optionalDependencies": {
-    "@img/sharp-darwin-arm64": "0.34.5",
-    "@img/sharp-darwin-x64": "0.34.5",
-    "@img/sharp-linux-arm64": "0.34.5",
-    "@img/sharp-linux-x64": "0.34.5",
-    "@img/sharp-libvips-darwin-arm64": "1.2.4",
-    "@img/sharp-libvips-darwin-x64": "1.2.4",
-    "@img/sharp-libvips-linux-arm64": "1.2.4",
-    "@img/sharp-libvips-linux-x64": "1.2.4"
+    "@img/sharp-darwin-arm64": "0.35.0",
+    "@img/sharp-darwin-x64": "0.35.0",
+    "@img/sharp-linux-arm64": "0.35.0",
+    "@img/sharp-linux-x64": "0.35.0",
+    "@img/sharp-libvips-darwin-arm64": "1.3.0",
+    "@img/sharp-libvips-darwin-x64": "1.3.0",
+    "@img/sharp-libvips-linux-arm64": "1.3.0",
+    "@img/sharp-libvips-linux-x64": "1.3.0"
+  },
+  "overrides": {
+    "sharp": "0.35.0",
+    "@img/sharp-darwin-arm64": "0.35.0",
+    "@img/sharp-darwin-x64": "0.35.0",
+    "@img/sharp-linux-arm64": "0.35.0",
+    "@img/sharp-linux-x64": "0.35.0",
+    "@img/sharp-libvips-darwin-arm64": "1.3.0",
+    "@img/sharp-libvips-darwin-x64": "1.3.0",
+    "@img/sharp-libvips-linux-arm64": "1.3.0",
+    "@img/sharp-libvips-linux-x64": "1.3.0"
   }
 }

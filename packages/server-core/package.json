@@ -31,7 +31,7 @@
     "@mkrate/bridge-protocol": "file:../../vendor/mkrate-bridge-protocol-1.0.0.tgz",
     "jose": "^6.0.0",
     "ws": "^8.19.0",
-    "sharp": "0.34.5",
+    "sharp": "0.35.0",
     "@earendil-works/pi-ai": "0.83.0"
   },
   "devDependencies": {

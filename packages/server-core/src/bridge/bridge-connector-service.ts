@@ -204,7 +204,7 @@ export class BridgeConnectorService {
   constructor(options: BridgeConnectorServiceOptions) {
     this.#profile = { ...options.profile };
     this.#credentials = options.credentials;
-    this.#clientVersion = options.clientVersion ?? '0.11.23';
+    this.#clientVersion = options.clientVersion ?? '0.0.1';
     this.#allowInsecureLoopback = options.allowInsecureLoopback === true;
     this.#logger = options.logger ?? NULL_BRIDGE_LOGGER;
     this.#randomBytes = options.randomBytes ?? ((length) => nodeRandomBytes(length));
