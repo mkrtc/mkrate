@@ -309,3 +309,28 @@ jobs:
             echo "- Updater manifests: 3 (macOS arm64-primary)"
             echo "- Publication side effects: none"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # This file is created only after the exact 14-asset verifier succeeds.
+      - name: Create exact-SHA evidence attestation
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare-evidence.outputs.expected_version }}
+          EVIDENCE_SHA: ${{ needs.prepare-evidence.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          bun scripts/release-workflow-contract.ts create-attestation \
+            --asset-dir "$RUNNER_TEMP/mkrate-release-assets" \
+            --commit-sha "$EVIDENCE_SHA" \
+            --version "$EXPECTED_VERSION" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/mkrate-pretag-attestation.json"
+
+      - name: Upload durable verified attestation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mkrate-pretag-attestation-${{ needs.prepare-evidence.outputs.commit_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mkrate-pretag-attestation.json
+          if-no-files-found: error
+          retention-days: 30

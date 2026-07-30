@@ -2,26 +2,12 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, join } from 'node:path';
+import { EXPECTED_RELEASE_ASSETS } from './release-workflow-contract';
+
+export { EXPECTED_RELEASE_ASSETS } from './release-workflow-contract';
 
 const require = createRequire(join(process.cwd(), 'package.json'));
 const yaml = require('js-yaml') as typeof import('js-yaml');
-
-export const EXPECTED_RELEASE_ASSETS = [
-  'Mkrate-x64.AppImage',
-  'latest-linux.yml',
-  'Mkrate-arm64.dmg',
-  'Mkrate-arm64.zip',
-  'Mkrate-arm64.dmg.blockmap',
-  'Mkrate-arm64.zip.blockmap',
-  'latest-mac.yml',
-  'Mkrate-x64.dmg',
-  'Mkrate-x64.zip',
-  'Mkrate-x64.dmg.blockmap',
-  'Mkrate-x64.zip.blockmap',
-  'Mkrate-x64.exe',
-  'Mkrate-x64.exe.blockmap',
-  'latest.yml',
-] as const;
 
 export const UPDATER_MANIFESTS = [
   { name: 'latest-linux.yml', files: ['Mkrate-x64.AppImage'] },

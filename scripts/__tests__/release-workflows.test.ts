@@ -6,6 +6,12 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  createPretagEvidenceAttestation,
+  normalizeReleaseAssets,
+  verifyPretagEvidenceAttestation,
+  verifyReleaseContract,
+} from '../release-workflow-contract';
+import {
   EXPECTED_RELEASE_ASSETS,
   UPDATER_MANIFESTS,
   verifyReleaseArtifacts,
@@ -15,9 +21,11 @@ const root = join(import.meta.dir, '..', '..');
 const releasePath = join(root, '.github/workflows/electron-release.yml');
 const evidencePath = join(root, '.github/workflows/electron-pretag-evidence.yml');
 const helperPath = join(root, 'scripts/verify-release-artifacts.ts');
+const contractHelperPath = join(root, 'scripts/release-workflow-contract.ts');
 const release = readFileSync(releasePath, 'utf8');
 const evidence = readFileSync(evidencePath, 'utf8');
 const helper = readFileSync(helperPath, 'utf8');
+const contractHelper = readFileSync(contractHelperPath, 'utf8');
 const require = createRequire(join(root, 'package.json'));
 const yaml = require('js-yaml') as typeof import('js-yaml');
 const tempDirs: string[] = [];
@@ -103,7 +111,7 @@ describe('workflow YAML and immutable action contracts', () => {
     expect(releaseDoc.on.push.tags).toEqual(['v*']);
     expect(Object.keys(evidenceDoc.on)).toEqual(['workflow_dispatch']);
     expect(evidenceDoc.permissions).toEqual({ contents: 'read' });
-    expect(releaseDoc.permissions).toEqual({ contents: 'write' });
+    expect(releaseDoc.permissions).toEqual({ actions: 'read', contents: 'write' });
   });
 
   test('all explicit Bash workflow blocks pass shell syntax checking', () => {
@@ -154,7 +162,7 @@ describe('Mkrate release contract', () => {
       'Mkrate-arm64.zip',
     ]);
 
-    for (const source of [release, evidence, helper]) {
+    for (const source of [release, evidence, helper, contractHelper]) {
       expect(source).not.toContain('Craft-Agents');
       expect(source).not.toContain('Craft Agents');
       expect(source).not.toContain('craft-release-run');
@@ -164,7 +172,6 @@ describe('Mkrate release contract', () => {
   });
 
   test('preserves parent atomicity, ownership, recovery, and publication gates', () => {
-    expect(release).not.toContain('workflow_dispatch');
     expect(release).toContain('git fetch --force --tags origin');
     expect(release).toContain('Peeled tag commit');
     expect(release).toContain('apps/electron/package.json version');
@@ -180,19 +187,19 @@ describe('Mkrate release contract', () => {
     expect(helper).toContain('SHA-512 mismatch');
     expect(release).toContain('Publish GitHub Release by numeric ID');
     expect(release).toContain('repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID');
-    expect(release).toContain('latest.get("id") == expected_id');
-    expect(release).toContain('latest.get("tag_name") == expected_tag');
+    expect(release).toContain('releases/latest');
+    expect(contractHelper).toContain("verifyReleaseMetadata(options.latest, options, 'latest release'");
   });
 
-  test('fails closed instead of rerunning after the numeric release is public', () => {
-    expect(release).toContain('Release id=$recovered_id is already public');
-    expect(release).toContain('Never re-run builders or mutate it');
-    expect(release).toContain('verify that exact numeric ID/tag/target/body/assets/latest state');
-    expect(release).toContain('Require verified preparation from this attempt');
+  test('allows only exact read-only public recovery while stale drafts require rerun-all', () => {
+    expect(release).toContain('Choose publication or read-only recovery');
+    expect(release).toContain('mode=recovered');
+    expect(release).toContain("if: steps.publication-mode.outputs.mode == 'publish'");
+    expect(release).toContain('PATCH/build/upload actions in this rerun: none');
     expect(release).toContain('Publication cannot reuse preparation from attempt');
-    expect(release).toContain('is no longer the verified draft; refuse PATCH');
-    expect(release).toContain('read-only exact-ID');
-    expect(release).toContain('manual authorization');
+    expect(release).toContain('Use Re-run all jobs');
+    expect(release).toContain('--state public');
+    expect(release).toContain('--latest "$RUNNER_TEMP/recovery-latest.json"');
   });
 });
 
@@ -203,7 +210,8 @@ describe('pre-tag evidence contract', () => {
     expect(evidence).toContain('bash apps/electron/scripts/build-linux.sh x64');
     expect(count(evidence, 'bash apps/electron/scripts/build-dmg.sh')).toBe(2);
     expect(evidence).toContain('apps/electron/scripts/build-win.ps1');
-    expect(count(evidence, 'actions/upload-artifact@')).toBe(4);
+    expect(count(evidence, 'actions/upload-artifact@')).toBe(5);
+    expect(count(evidence, 'name: mkrate-evidence-')).toBe(4);
     expect(count(evidence, 'actions/download-artifact@')).toBe(1);
     expect(evidence).toContain('merge-multiple: true');
     expect(evidence).toContain('bun scripts/verify-release-artifacts.ts');
@@ -231,6 +239,213 @@ describe('pre-tag evidence contract', () => {
       expect(script).toContain('scripts/stage-sharp-runtime.ts verify-packaged');
     }
     expect(readFileSync(join(root, 'scripts/stage-sharp-runtime.ts'), 'utf8')).toContain('Packaged sharp smoke passed');
+  });
+});
+
+describe('pre-tag attestation and publication boundary wiring', () => {
+  test('creates the durable attestation only after exact verification and gates all release mutation on it', () => {
+    const evidenceDoc = parseWorkflow(evidence);
+    const evidenceSteps = evidenceDoc.jobs['verify-evidence'].steps;
+    const evidenceNames = evidenceSteps.map((step: any) => step.name);
+    const verifyIndex = evidenceNames.indexOf('Verify exact 14-asset evidence set');
+    const createIndex = evidenceNames.indexOf('Create exact-SHA evidence attestation');
+    const uploadIndex = evidenceNames.indexOf('Upload durable verified attestation');
+    expect(verifyIndex).toBeGreaterThanOrEqual(0);
+    expect(createIndex).toBeGreaterThan(verifyIndex);
+    expect(uploadIndex).toBeGreaterThan(createIndex);
+    expect(evidenceSteps[uploadIndex].with['retention-days']).toBe(30);
+    expect(evidenceSteps[uploadIndex].with.name).toContain('mkrate-pretag-attestation-');
+    expect(evidenceSteps[createIndex].run).toContain('release-workflow-contract.ts create-attestation');
+
+    const releaseDoc = parseWorkflow(release);
+    const prepareSteps = releaseDoc.jobs['prepare-release'].steps;
+    const prepareNames = prepareSteps.map((step: any) => step.name);
+    const gateIndex = prepareNames.indexOf('Require successful exact-SHA pre-tag attestation');
+    const mutationIndex = prepareNames.indexOf('Create or recover draft GitHub Release');
+    expect(gateIndex).toBeGreaterThanOrEqual(0);
+    expect(mutationIndex).toBeGreaterThan(gateIndex);
+    expect(prepareSteps[gateIndex].run).toContain('conclusion');
+    expect(prepareSteps[gateIndex].run).toContain('"success"');
+    expect(prepareSteps[gateIndex].run).toContain('actions/runs/$evidence_run_id/artifacts');
+    expect(prepareSteps[gateIndex].run).toContain('actions/artifacts/$artifact_id/zip');
+    expect(prepareSteps[gateIndex].run).toContain('verify-attestation');
+    expect(release.indexOf('Require successful exact-SHA pre-tag attestation')).toBeLessThan(
+      release.indexOf('gh release create'),
+    );
+    expect(contractHelper).toContain('mkrate-electron-pretag-evidence/v1');
+  });
+
+  test('binds verification, immediate pre-PATCH state, post-public state, and recovery to one fingerprint', () => {
+    const releaseDoc = parseWorkflow(release);
+    const verifyJob = releaseDoc.jobs['verify-release-assets'];
+    expect(verifyJob.outputs.asset_fingerprint).toContain('steps.verify-contract.outputs.asset_fingerprint');
+
+    const publishJob = releaseDoc.jobs['publish-release'];
+    const recoveryStep = publishJob.steps.find((step: any) => step.name === 'Choose publication or read-only recovery');
+    const publishStep = publishJob.steps.find((step: any) => step.name === 'Publish GitHub Release by numeric ID');
+    expect(recoveryStep.run).not.toContain('--method PATCH');
+    expect(recoveryStep.run).not.toMatch(/build-(?:linux|dmg|win)/);
+    expect(publishStep.if).toBe("steps.publication-mode.outputs.mode == 'publish'");
+    expect(publishStep.run).toContain('prepublish-assets.json');
+    expect(publishStep.run).toContain('--expected-asset-fingerprint "$VERIFIED_ASSET_FINGERPRINT"');
+    expect(publishStep.run).toContain('"target_commitish": sys.argv[3]');
+    expect(publishStep.run).toContain('public-assets.json');
+    expect(publishStep.run).toContain('latest-release.json');
+    expect(publishStep.run.indexOf('prepublish_fingerprint=')).toBeLessThan(
+      publishStep.run.indexOf('gh api --method PATCH'),
+    );
+    expect(contractHelper).toContain('immutable ids must be unique');
+    expect(contractHelper).toContain("state: 'uploaded'");
+    expect(contractHelper).toContain('digest: string | null');
+  });
+});
+
+describe('release workflow contract helper', () => {
+  test('creates and validates an exact commit/version/14-asset evidence attestation', () => {
+    const fixture = createFixture();
+    const options = {
+      assetDir: fixture.assetDir,
+      commitSha: 'a'.repeat(40),
+      version: '0.0.1',
+      repository: 'mkrtc/mkrate',
+      runId: '123456',
+      runAttempt: 2,
+    };
+    const attestation = createPretagEvidenceAttestation(options);
+    expect(attestation.asset_contract.count).toBe(14);
+    expect(attestation.asset_contract.assets).toHaveLength(14);
+    expect(verifyPretagEvidenceAttestation(attestation, options)).toEqual(attestation);
+
+    const wrongCommit = structuredClone(attestation);
+    wrongCommit.commit_sha = 'b'.repeat(40);
+    expect(() => verifyPretagEvidenceAttestation(wrongCommit, options)).toThrow(
+      'pre-tag evidence attestation mismatch: commit_sha',
+    );
+
+    const changedContract = structuredClone(attestation);
+    changedContract.asset_contract.assets[0].size++;
+    expect(() => verifyPretagEvidenceAttestation(changedContract, options)).toThrow(
+      'attested asset contract fingerprint mismatch',
+    );
+  });
+
+  test('normalizes IDs, names, sizes, state, and available digests into an order-independent fingerprint', () => {
+    const fixture = createFixture();
+    const apiAssets = JSON.parse(readFileSync(fixture.apiAssetsPath, 'utf8')) as any[];
+    delete apiAssets[0].digest;
+    const forward = normalizeReleaseAssets(apiAssets);
+    const reverse = normalizeReleaseAssets([...apiAssets].reverse());
+    expect(reverse).toEqual(forward);
+    expect(forward.assets.find((asset) => asset.id === 1)?.digest).toBeNull();
+    expect(forward.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  test('rejects asset fingerprint mutation at the draft publication boundary', () => {
+    const fixture = createFixture();
+    const apiAssets = JSON.parse(readFileSync(fixture.apiAssetsPath, 'utf8')) as any[];
+    const expected = normalizeReleaseAssets(apiAssets).fingerprint;
+    const notesBody = '# Mkrate v0.0.1\n';
+    const releaseBase = {
+      id: 77,
+      tag_name: 'v0.0.1',
+      name: 'Mkrate v0.0.1',
+      target_commitish: 'a'.repeat(40),
+      body: `${notesBody}\n<!-- mkrate-release-run:123456 -->\n`,
+      draft: true,
+      prerelease: false,
+      published_at: null,
+      assets: apiAssets,
+    };
+    expect(
+      verifyReleaseContract({
+        release: releaseBase,
+        apiAssets,
+        notesBody,
+        tag: 'v0.0.1',
+        targetCommitish: 'a'.repeat(40),
+        releaseId: 77,
+        runId: '123456',
+        state: 'draft',
+        expectedAssetFingerprint: expected,
+      }).fingerprint,
+    ).toBe(expected);
+
+    const changedAssets = structuredClone(apiAssets);
+    changedAssets[0].id = 1001;
+    expect(() =>
+      verifyReleaseContract({
+        release: releaseBase,
+        apiAssets: changedAssets,
+        notesBody,
+        tag: 'v0.0.1',
+        targetCommitish: 'a'.repeat(40),
+        releaseId: 77,
+        runId: '123456',
+        state: 'draft',
+        expectedAssetFingerprint: expected,
+      }),
+    ).toThrow('release asset fingerprint mismatch');
+
+    expect(() =>
+      verifyReleaseContract({
+        release: { ...releaseBase, body: 'changed' },
+        apiAssets,
+        notesBody,
+        tag: 'v0.0.1',
+        targetCommitish: 'a'.repeat(40),
+        releaseId: 77,
+        runId: '123456',
+        state: 'draft',
+        expectedAssetFingerprint: expected,
+      }),
+    ).toThrow('draft release mismatch: body');
+  });
+
+  test('accepts only exact public/latest read-only recovery state', () => {
+    const fixture = createFixture();
+    const apiAssets = JSON.parse(readFileSync(fixture.apiAssetsPath, 'utf8')) as any[];
+    const expected = normalizeReleaseAssets(apiAssets).fingerprint;
+    const notesBody = '# Mkrate v0.0.1\n';
+    const published = {
+      id: 77,
+      tag_name: 'v0.0.1',
+      name: 'Mkrate v0.0.1',
+      target_commitish: 'a'.repeat(40),
+      body: notesBody,
+      draft: false,
+      prerelease: false,
+      published_at: '2026-07-30T16:00:00Z',
+      assets: apiAssets,
+    };
+    expect(
+      verifyReleaseContract({
+        release: published,
+        apiAssets,
+        notesBody,
+        tag: 'v0.0.1',
+        targetCommitish: 'a'.repeat(40),
+        releaseId: 77,
+        runId: '123456',
+        state: 'public',
+        expectedAssetFingerprint: expected,
+        latest: { ...published },
+      }).fingerprint,
+    ).toBe(expected);
+
+    expect(() =>
+      verifyReleaseContract({
+        release: published,
+        apiAssets,
+        notesBody,
+        tag: 'v0.0.1',
+        targetCommitish: 'a'.repeat(40),
+        releaseId: 77,
+        runId: '123456',
+        state: 'public',
+        expectedAssetFingerprint: expected,
+        latest: { ...published, target_commitish: 'b'.repeat(40) },
+      }),
+    ).toThrow('latest release mismatch: target');
   });
 });
 

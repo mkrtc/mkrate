@@ -6,6 +6,7 @@ on:
       - 'v*'
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -89,6 +90,118 @@ jobs:
             echo "NOTES_FILE=$notes_file"
             echo "RELEASE_SHA=$release_sha"
           } >> "$GITHUB_ENV"
+
+      - name: Setup exact Bun for attestation
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # This read-only gate runs before draft creation, asset deletion, or any
+      # other release mutation. It accepts only a non-expired artifact attached
+      # by GitHub to a successful run of the dedicated evidence workflow.
+      - name: Require successful exact-SHA pre-tag attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          runs_json="$RUNNER_TEMP/pretag-runs.json"
+          candidates="$RUNNER_TEMP/pretag-candidates.tsv"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/electron-pretag-evidence.yml/runs?event=workflow_dispatch&status=completed&per_page=100" \
+            > "$runs_json"
+          python3 - "$runs_json" <<'PY' > "$candidates"
+          import json
+          import sys
+          from pathlib import Path
+
+          pages = json.loads(Path(sys.argv[1]).read_text())
+          runs = [run for page in pages for run in page.get("workflow_runs", [])]
+          candidates = [
+              run for run in runs
+              if run.get("status") == "completed"
+              and run.get("conclusion") == "success"
+              and run.get("event") == "workflow_dispatch"
+              and run.get("path") == ".github/workflows/electron-pretag-evidence.yml"
+              and isinstance(run.get("id"), int)
+              and isinstance(run.get("run_attempt"), int)
+          ]
+          candidates.sort(key=lambda run: run.get("updated_at") or "", reverse=True)
+          for run in candidates:
+              print(f'{run["id"]}\t{run["run_attempt"]}')
+          PY
+
+          attestation_found=false
+          while IFS=$'\t' read -r evidence_run_id evidence_run_attempt; do
+            [[ -z "$evidence_run_id" ]] && continue
+            expected_artifact_name="mkrate-pretag-attestation-${RELEASE_SHA}-${evidence_run_id}-${evidence_run_attempt}"
+            artifacts_json="$RUNNER_TEMP/pretag-artifacts-${evidence_run_id}-${evidence_run_attempt}.json"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$evidence_run_id/artifacts?per_page=100" > "$artifacts_json"
+
+            artifact_id="$({ python3 - "$artifacts_json" "$expected_artifact_name" "$evidence_run_id" <<'PY'
+          import datetime
+          import json
+          import sys
+          from pathlib import Path
+
+          response = json.loads(Path(sys.argv[1]).read_text())
+          expected_name = sys.argv[2]
+          expected_run_id = int(sys.argv[3])
+          matches = [artifact for artifact in response.get("artifacts", []) if artifact.get("name") == expected_name]
+          if len(matches) != 1:
+              raise SystemExit(1)
+          artifact = matches[0]
+          workflow_run = artifact.get("workflow_run")
+          if workflow_run is not None and workflow_run.get("id") != expected_run_id:
+              raise SystemExit(1)
+          if not isinstance(artifact.get("id"), int) or artifact["id"] <= 0 or artifact.get("expired") is not False:
+              raise SystemExit(1)
+          expires_at = artifact.get("expires_at")
+          if not isinstance(expires_at, str):
+              raise SystemExit(1)
+          expires = datetime.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+          if expires <= datetime.datetime.now(datetime.timezone.utc):
+              raise SystemExit(1)
+          print(artifact["id"])
+          PY
+            } || true)"
+            [[ -z "$artifact_id" ]] && continue
+
+            artifact_zip="$RUNNER_TEMP/pretag-attestation-${artifact_id}.zip"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$artifact_zip"
+            mapfile -t archive_entries < <(unzip -Z1 "$artifact_zip")
+            if (( ${#archive_entries[@]} != 1 )) || [[ "${archive_entries[0]}" != "mkrate-pretag-attestation.json" ]]; then
+              echo "Ignoring malformed pre-tag attestation artifact id=$artifact_id"
+              continue
+            fi
+            attestation_json="$RUNNER_TEMP/pretag-attestation-${artifact_id}.json"
+            unzip -p "$artifact_zip" mkrate-pretag-attestation.json > "$attestation_json"
+
+            if bun scripts/release-workflow-contract.ts verify-attestation \
+              --attestation "$attestation_json" \
+              --commit-sha "$RELEASE_SHA" \
+              --version "$EXPECTED_VERSION" \
+              --repository "$GITHUB_REPOSITORY" \
+              --run-id "$evidence_run_id" \
+              --run-attempt "$evidence_run_attempt"; then
+              attestation_found=true
+              {
+                echo "### Required pre-tag evidence attestation"
+                echo "- Successful workflow run: \`$evidence_run_id\` (attempt \`$evidence_run_attempt\`)"
+                echo "- Artifact ID: \`$artifact_id\`"
+                echo "- Immutable commit: \`$RELEASE_SHA\`"
+                echo "- Version: \`$EXPECTED_VERSION\`"
+                echo "- Exact attested assets: 14"
+              } >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+          done < "$candidates"
+
+          if [[ "$attestation_found" != "true" ]]; then
+            echo "::error::No non-expired valid attestation from a successful Electron Pre-tag Packaging Evidence run matches commit=$RELEASE_SHA version=$EXPECTED_VERSION"
+            exit 1
+          fi
 
       - name: Create or recover draft GitHub Release
         id: release-ready
@@ -521,6 +634,8 @@ jobs:
       - build-macos-arm64
       - build-macos-x64
       - build-windows-x64
+    outputs:
+      asset_fingerprint: ${{ steps.verify-contract.outputs.asset_fingerprint }}
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
@@ -607,40 +722,31 @@ jobs:
           done < "$RUNNER_TEMP/assets.tsv"
 
       - name: Verify exact draft metadata and release assets
+        id: verify-contract
         shell: bash
         run: |
           set -euo pipefail
-
-          python3 - "$RUNNER_TEMP/release.json" "$NOTES_FILE" "$RELEASE_TAG" "$RELEASE_SHA" "$RELEASE_ID" "$GITHUB_RUN_ID" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          release = json.loads(Path(sys.argv[1]).read_text())
-          notes_body = Path(sys.argv[2]).read_text()
-          expected_tag = sys.argv[3]
-          expected_sha = sys.argv[4]
-          expected_id = int(sys.argv[5])
-          expected_body = notes_body + ("" if notes_body.endswith("\n") else "\n") + f"\n<!-- mkrate-release-run:{sys.argv[6]} -->\n"
-          checks = {
-              "id": release.get("id") == expected_id,
-              "tag": release.get("tag_name") == expected_tag,
-              "title": release.get("name") == f"Mkrate {expected_tag}",
-              "target": release.get("target_commitish") == expected_sha,
-              "body": (release.get("body") or "") == expected_body,
-              "draft": release.get("draft") is True,
-              "not_prerelease": release.get("prerelease") is False,
-              "not_published": release.get("published_at") is None,
-          }
-          failures = [name for name, ok in checks.items() if not ok]
-          if failures:
-              raise SystemExit(f"Draft release metadata mismatch before publication: {', '.join(failures)}")
-          PY
 
           bun scripts/verify-release-artifacts.ts \
             --asset-dir "$RUNNER_TEMP/release-assets" \
             --expected-version "$EXPECTED_VERSION" \
             --api-assets "$RUNNER_TEMP/assets.json"
+
+          asset_fingerprint="$(bun scripts/release-workflow-contract.ts verify-release \
+            --release "$RUNNER_TEMP/release.json" \
+            --api-assets "$RUNNER_TEMP/assets.json" \
+            --notes-file "$NOTES_FILE" \
+            --tag "$RELEASE_TAG" \
+            --target "$RELEASE_SHA" \
+            --release-id "$RELEASE_ID" \
+            --run-id "$GITHUB_RUN_ID" \
+            --state draft)"
+          if [[ ! "$asset_fingerprint" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid normalized release asset fingerprint: $asset_fingerprint"
+            exit 1
+          fi
+          echo "asset_fingerprint=$asset_fingerprint" >> "$GITHUB_OUTPUT"
+          echo "Normalized verified draft asset fingerprint: \`$asset_fingerprint\`" >> "$GITHUB_STEP_SUMMARY"
 
   publish-release:
     name: Publish release
@@ -651,12 +757,57 @@ jobs:
       - verify-release-assets
     env:
       RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+      VERIFIED_ASSET_FINGERPRINT: ${{ needs.verify-release-assets.outputs.asset_fingerprint }}
 
     steps:
-      # Recovery invariant: a stale attempt never reaches PATCH. If the numeric
-      # release is public, perform only read-only exact-ID/tag/target/body/
-      # assets/latest verification and manually escalate any mismatch.
-      - name: Require verified preparation from this attempt
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Setup exact Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Pin publication contract
+        shell: bash
+        env:
+          PINNED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags origin
+          release_sha="$(git rev-parse "$RELEASE_TAG^{}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          pinned_sha="$(git rev-parse "$PINNED_SHA^{}")"
+          if [[ "$checkout_sha" != "$release_sha" || "$pinned_sha" != "$release_sha" ]]; then
+            echo "::error::Publication checkout, tag target, and pinned workflow SHA must be exact"
+            exit 1
+          fi
+          expected_version="${RELEASE_TAG#v}"
+          notes_file="apps/electron/resources/release-notes/${expected_version}.md"
+          if [[ ! -f "$notes_file" ]]; then
+            echo "::error::Missing publication release notes: $notes_file"
+            exit 1
+          fi
+          if [[ ! "$VERIFIED_ASSET_FINGERPRINT" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Missing verified normalized asset fingerprint"
+            exit 1
+          fi
+          {
+            echo "EXPECTED_VERSION=$expected_version"
+            echo "NOTES_FILE=$notes_file"
+            echo "RELEASE_SHA=$release_sha"
+          } >> "$GITHUB_ENV"
+
+      # A rerun of only this job has stale preparation outputs. It may succeed
+      # only when the numeric release is already exact and public. This step is
+      # read-only; the PATCH step below is expression-gated to mode=publish.
+      - name: Choose publication or read-only recovery
+        id: publication-mode
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -664,71 +815,99 @@ jobs:
           CURRENT_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+
           if [[ "$PREPARE_ATTEMPT" == "$CURRENT_ATTEMPT" ]]; then
+            echo "mode=publish" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/rerun-release.json"
-          read -r release_id draft published_at < <(
-            python3 - "$RUNNER_TEMP/rerun-release.json" <<'PY'
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/recovery-release.json"
+          read -r draft published_at < <(
+            python3 - "$RUNNER_TEMP/recovery-release.json" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           release = json.loads(Path(sys.argv[1]).read_text())
-          print(release.get("id", ""), str(release.get("draft")).lower(), release.get("published_at") or "null")
+          print(str(release.get("draft")).lower(), release.get("published_at") or "null")
           PY
           )
-          if [[ "$draft" != "true" || "$published_at" != "null" ]]; then
-            echo "::error::Release id=$release_id is already public. Do not rerun or mutate it; perform read-only exact-ID/tag/target/body/assets/latest verification and escalate any mismatch for manual authorization."
-          else
-            echo "::error::Publication cannot reuse preparation from attempt $PREPARE_ATTEMPT. Use Re-run all jobs so the owned draft is revalidated and partial assets are cleaned before builders run."
+          if [[ "$draft" == "true" && "$published_at" == "null" ]]; then
+            echo "::error::Publication cannot reuse preparation from attempt $PREPARE_ATTEMPT while the release is still a draft. Use Re-run all jobs so the owned draft is revalidated and partial assets are cleaned before builders run."
+            exit 1
           fi
-          exit 1
 
-      - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ github.ref }}
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > "$RUNNER_TEMP/recovery-assets.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/recovery-latest.json"
+          recovered_fingerprint="$(bun scripts/release-workflow-contract.ts verify-release \
+            --release "$RUNNER_TEMP/recovery-release.json" \
+            --api-assets "$RUNNER_TEMP/recovery-assets.json" \
+            --notes-file "$NOTES_FILE" \
+            --tag "$RELEASE_TAG" \
+            --target "$RELEASE_SHA" \
+            --release-id "$RELEASE_ID" \
+            --run-id "$GITHUB_RUN_ID" \
+            --state public \
+            --expected-asset-fingerprint "$VERIFIED_ASSET_FINGERPRINT" \
+            --latest "$RUNNER_TEMP/recovery-latest.json")"
+          if [[ "$recovered_fingerprint" != "$VERIFIED_ASSET_FINGERPRINT" ]]; then
+            echo "::error::Read-only recovery returned an unexpected asset fingerprint"
+            exit 1
+          fi
+
+          echo "mode=recovered" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Publication recovered read-only"
+            echo "- Numeric release ID: \`$RELEASE_ID\`"
+            echo "- Exact tag/target/title/body/public/latest state: verified"
+            echo "- Exact asset fingerprint: \`$recovered_fingerprint\`"
+            echo "- PATCH/build/upload actions in this rerun: none"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish GitHub Release by numeric ID
+        if: steps.publication-mode.outputs.mode == 'publish'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
+          # Re-fetch every mutable boundary immediately before PATCH. The
+          # normalized fingerprint binds immutable IDs, exact names, sizes,
+          # upload state, and every digest currently supplied by GitHub.
           gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/prepublish-release.json"
-          python3 - "$RUNNER_TEMP/prepublish-release.json" "$RELEASE_ID" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > "$RUNNER_TEMP/prepublish-assets.json"
+          prepublish_fingerprint="$(bun scripts/release-workflow-contract.ts verify-release \
+            --release "$RUNNER_TEMP/prepublish-release.json" \
+            --api-assets "$RUNNER_TEMP/prepublish-assets.json" \
+            --notes-file "$NOTES_FILE" \
+            --tag "$RELEASE_TAG" \
+            --target "$RELEASE_SHA" \
+            --release-id "$RELEASE_ID" \
+            --run-id "$GITHUB_RUN_ID" \
+            --state draft \
+            --expected-asset-fingerprint "$VERIFIED_ASSET_FINGERPRINT")"
+          if [[ "$prepublish_fingerprint" != "$VERIFIED_ASSET_FINGERPRINT" ]]; then
+            echo "::error::Draft changed after verification; refuse PATCH"
+            exit 1
+          fi
 
-          release = json.loads(Path(sys.argv[1]).read_text())
-          expected_id = int(sys.argv[2])
-          if release.get("id") != expected_id or release.get("draft") is not True or release.get("published_at") is not None:
-              raise SystemExit(
-                  f"Numeric release id={expected_id} is no longer the verified draft; refuse PATCH and use read-only exact-ID verification/manual escalation"
-              )
-          PY
-
-          expected_version="${RELEASE_TAG#v}"
-          notes_file="apps/electron/resources/release-notes/${expected_version}.md"
           publish_json="$RUNNER_TEMP/publish-release.json"
-          python3 - "$notes_file" "$RELEASE_TAG" "$publish_json" <<'PY'
+          python3 - "$NOTES_FILE" "$RELEASE_TAG" "$RELEASE_SHA" "$publish_json" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           payload = {
+              "tag_name": sys.argv[2],
+              "target_commitish": sys.argv[3],
               "name": f"Mkrate {sys.argv[2]}",
               "body": Path(sys.argv[1]).read_text(),
               "draft": False,
               "prerelease": False,
               "make_latest": "true",
           }
-          Path(sys.argv[3]).write_text(json.dumps(payload))
+          Path(sys.argv[4]).write_text(json.dumps(payload))
           PY
           gh api --method PATCH \
             "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
@@ -736,40 +915,37 @@ jobs:
 
           verified=false
           for attempt in {1..12}; do
-            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/public-release.json" \
+            if gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/public-release.json" \
+              && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > "$RUNNER_TEMP/public-assets.json" \
               && gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/latest-release.json"; then
-              if python3 - "$RUNNER_TEMP/public-release.json" "$RUNNER_TEMP/latest-release.json" "$notes_file" "$RELEASE_TAG" "$RELEASE_ID" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          release = json.loads(Path(sys.argv[1]).read_text())
-          latest = json.loads(Path(sys.argv[2]).read_text())
-          expected_body = Path(sys.argv[3]).read_text()
-          expected_tag = sys.argv[4]
-          expected_id = int(sys.argv[5])
-          checks = {
-              "id": release.get("id") == expected_id,
-              "tag": release.get("tag_name") == expected_tag,
-              "title": release.get("name") == f"Mkrate {expected_tag}",
-              "body": (release.get("body") or "") == expected_body,
-              "published": release.get("draft") is False and release.get("published_at") is not None,
-              "not_prerelease": release.get("prerelease") is False,
-              "latest": latest.get("id") == expected_id and latest.get("tag_name") == expected_tag,
-          }
-          failures = [name for name, ok in checks.items() if not ok]
-          if failures:
-              raise SystemExit(f"Published release verification pending: {', '.join(failures)}")
-          PY
-              then
-                verified=true
-                break
+              if published_fingerprint="$(bun scripts/release-workflow-contract.ts verify-release \
+                --release "$RUNNER_TEMP/public-release.json" \
+                --api-assets "$RUNNER_TEMP/public-assets.json" \
+                --notes-file "$NOTES_FILE" \
+                --tag "$RELEASE_TAG" \
+                --target "$RELEASE_SHA" \
+                --release-id "$RELEASE_ID" \
+                --run-id "$GITHUB_RUN_ID" \
+                --state public \
+                --expected-asset-fingerprint "$VERIFIED_ASSET_FINGERPRINT" \
+                --latest "$RUNNER_TEMP/latest-release.json")"; then
+                if [[ "$published_fingerprint" == "$VERIFIED_ASSET_FINGERPRINT" ]]; then
+                  verified=true
+                  break
+                fi
               fi
             fi
-            echo "Published release not fully visible yet (attempt $attempt/12)"
+            echo "Published release not fully exact/latest yet (attempt $attempt/12)"
             sleep 5
           done
           if [[ "$verified" != "true" ]]; then
-            echo "::error::Published release did not become exact/latest within 60 seconds"
+            echo "::error::Published release did not become exact/latest with the verified target and asset fingerprint within 60 seconds. A publish-job-only rerun may perform read-only recovery."
             exit 1
           fi
+          {
+            echo "### Published exact release"
+            echo "- Numeric release ID: \`$RELEASE_ID\`"
+            echo "- Immutable target: \`$RELEASE_SHA\`"
+            echo "- Exact asset fingerprint: \`$VERIFIED_ASSET_FINGERPRINT\`"
+            echo "- Latest release state: verified"
+          } >> "$GITHUB_STEP_SUMMARY"
