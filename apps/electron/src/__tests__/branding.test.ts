@@ -238,27 +238,33 @@ describe('cross-platform reproducible packaging contracts', () => {
   })
 })
 
-describe('release is source-only (no active publisher in .github/workflows)', () => {
+describe('Mkrate release workflow identity and privilege split', () => {
   const workflowsDir = join(repoRoot, '.github', 'workflows')
   const workflowFiles = readdirSync(workflowsDir).filter(
     (file) => file.endsWith('.yml') || file.endsWith('.yaml'),
   )
+  const releaseWorkflow = read(workflowsDir, 'electron-release.yml')
+  const evidenceWorkflow = read(workflowsDir, 'electron-pretag-evidence.yml')
 
-  it('does not ship the electron-release publisher workflow', () => {
-    // History preserves it for a future, separately-approved release-readiness phase; the
-    // current tree must contain no active tag/manual release-publishing workflow.
-    expect(workflowFiles).not.toContain('electron-release.yml')
+  it('ships the reviewed Mkrate publisher and pre-tag evidence workflows', () => {
+    expect(workflowFiles).toContain('electron-release.yml')
+    expect(workflowFiles).toContain('electron-pretag-evidence.yml')
+    expect(releaseWorkflow).toContain('Mkrate $RELEASE_TAG')
+    expect(releaseWorkflow).toContain('mkrate-release-run:')
+    expect(releaseWorkflow).not.toContain('Craft-Agents-')
   })
 
-  it('has no workflow that can create/publish/upload a release or request write contents permission', () => {
-    for (const file of workflowFiles) {
-      const wf = read(workflowsDir, file)
-      expect(wf).not.toMatch(/contents:\s*write/)
-      expect(wf).not.toContain('gh release create')
-      expect(wf).not.toContain('uploads.github.com')
-      expect(wf).not.toMatch(/actions\/upload-release/)
-      expect(wf).not.toContain('softprops/action-gh-release')
-    }
+  it('keeps write/release mutation in the tag-only publisher and out of pre-tag evidence', () => {
+    expect(releaseWorkflow).toMatch(/push:\s*\n\s*tags:/)
+    expect(releaseWorkflow).not.toContain('workflow_dispatch:')
+    expect(releaseWorkflow).toMatch(/contents:\s*write/)
+    expect(releaseWorkflow).toContain('gh release create')
+    expect(releaseWorkflow).toContain('uploads.github.com')
+
+    expect(evidenceWorkflow).toContain('workflow_dispatch:')
+    expect(evidenceWorkflow).toMatch(/contents:\s*read/)
+    expect(evidenceWorkflow).not.toContain('gh release create')
+    expect(evidenceWorkflow).not.toContain('uploads.github.com')
   })
 })
 
@@ -322,10 +328,13 @@ describe('Mkrate assistant persona and co-author trailer', () => {
 describe('README release-readiness claims', () => {
   const readme = read(repoRoot, 'README.md')
 
-  it('accurately distinguishes prepared packaging from the first unpublished release', () => {
-    expect(readme).toContain('No Mkrate Desktop release has been published yet.')
-    expect(readme).toContain('Linux x64, macOS arm64/x64, and Windows x64')
-    expect(readme).not.toContain('repository/Releases page referenced throughout this')
+  it('describes the immutable v0.0.1 path without a time-sensitive publication claim', () => {
+    expect(readme).toContain('The first supported Mkrate Desktop binary line is v0.0.1.')
+    expect(readme).toContain('Linux x64')
+    expect(readme).toContain('macOS arm64/x64')
+    expect(readme).toContain('Windows x64')
+    expect(readme).toContain('published only after the exact immutable tag passes')
+    expect(readme).not.toContain('No Mkrate Desktop release has been published yet.')
   })
 
   it('discloses the deliberate unsigned and unnotarized status without blocking native macOS packaging', () => {

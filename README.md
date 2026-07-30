@@ -23,7 +23,7 @@
 - **Settings UI for label-bound skills**: manage label/skill bindings from Settings with searchable label and skill selectors.
 - **Improved role UX**: active label-bound skills are surfaced as actual roles while preserving explicit `[skill:slug]` behavior.
 - **Chat scroll-to-bottom control**: adds a down-button in the input-zone top row next to the `Info` button.
-- **Mkrate update feed (planned, not yet live)**: the install scripts and updater are wired to read from Mkrate's GitHub Releases at `mkrtc/mkrate`, but **no Mkrate release has been published yet**, so that feed is currently inactive. See [Installation](#installation).
+- **Mkrate update feed**: install scripts and the updater read immutable Mkrate GitHub Release assets at `mkrtc/mkrate`; availability is gated by the exact release workflow and updater manifests. See [Installation](#installation).
 
 > [!NOTE]
 > Some internal identifiers are intentionally **unchanged** for drop-in compatibility with existing
@@ -93,9 +93,10 @@ Yes. That's the core idea behind agent-native software. You describe what you wa
 ## Installation
 
 > [!IMPORTANT]
-> **No Mkrate Desktop release has been published yet.** The v0.0.1 packaging path is prepared for
-> Linux x64, macOS arm64/x64, and Windows x64, but installers and the update feed become available
-> only after the immutable release tag is published. Until then, use
+> The first supported Mkrate Desktop binary line is v0.0.1. Linux x64, macOS arm64/x64, and
+> Windows x64 assets are published only after the exact immutable tag passes the multi-platform
+> build, manifest, checksum, and release-verification gates. If the exact v0.0.1 assets are not
+> visible on the [Releases page](https://github.com/mkrtc/mkrate/releases), use
 > **[build it from source](#build-this-fork-from-source)**.
 >
 > v0.0.1 desktop artifacts are intentionally **unsigned**; macOS artifacts are also
@@ -103,14 +104,13 @@ Yes. That's the core idea behind agent-native software. You describe what you wa
 > the approved canonical PNG. macOS 26 Liquid Glass assets and a custom DMG background remain
 > deferred and are not release blockers.
 
-### Prebuilt install (available after the first release)
+### Prebuilt installation
 
-After a Mkrate Desktop release is published, the repository's install scripts
-(`scripts/install-app.sh`, `scripts/install-app.ps1`) and updater use the matching GitHub Release
-at `mkrtc/mkrate`. Verify the exact release version and platform artifact before installing; no
-one-line remote-shell command is presented here. The Linux installer performs a first install
-without signalling running processes and, on upgrades, only stops processes proven to execute the
-installed AppImage.
+The repository's install scripts (`scripts/install-app.sh`, `scripts/install-app.ps1`) and updater
+use matching immutable GitHub Release assets at `mkrtc/mkrate`. Verify the exact release version and
+platform artifact before installing; no one-line remote-shell command is presented here. The Linux
+installer performs a first install without signalling running processes and, on upgrades, only
+stops processes proven to execute the installed AppImage.
 
 ### Official upstream install
 
