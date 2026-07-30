@@ -349,25 +349,40 @@ else
     DESKTOP_FILE="$DESKTOP_DIR/mkrate.desktop"
     ICON_FILE="$ICON_DIR/mkrate.png"
 
+    # A first install must never signal an unrelated process. On upgrades, only
+    # signal a process that is provably using the installed AppImage: either the
+    # exact APPIMAGE environment value or the exact installed executable path.
+    # In particular, development @craft-agentelectron processes are never targets.
     running_pids=""
-    while IFS= read -r line; do
-        pid="${line%% *}"
-        cmd="${line#* }"
+    if [ -f "$APPIMAGE_INSTALL_PATH" ]; then
+        while IFS= read -r line; do
+            pid="${line%% *}"
+            cmd="${line#* }"
 
-        if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then
-            continue
-        fi
+            if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then
+                continue
+            fi
+            case "$cmd" in
+                *install-app.sh*) continue ;;
+            esac
 
-        case "$cmd" in
-            *install-app.sh*) continue ;;
-        esac
+            process_appimage="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^APPIMAGE=//p' | head -n 1 || true)"
+            if [ "$process_appimage" = "$APPIMAGE_INSTALL_PATH" ]; then
+                running_pids="$running_pids $pid"
+                continue
+            fi
+            case "$cmd" in
+                "$APPIMAGE_INSTALL_PATH"|"$APPIMAGE_INSTALL_PATH"\ *)
+                    running_pids="$running_pids $pid"
+                    ;;
+            esac
+        done < <(pgrep -af 'Mkrate-x64\.AppImage' || true)
+    fi
 
-        running_pids="$running_pids $pid"
-    done < <(pgrep -af 'Mkrate-x64\.AppImage|/@craft-agentelectron' || true)
-
-    # Kill the app if it's running
+    # No signal is sent on a first install, and upgrades only stop verified
+    # installed-AppImage processes collected above.
     if [ -n "$running_pids" ]; then
-        info "Stopping Mkrate..."
+        info "Stopping installed Mkrate AppImage..."
         kill $running_pids 2>/dev/null || true
         sleep 2
     fi

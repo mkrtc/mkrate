@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration
-BUN_VERSION="bun-v1.3.9"  # Pinned version for reproducible builds
+BUN_VERSION="bun-v1.3.10"  # Pinned version for reproducible builds
 
 echo "=== Building Mkrate DMG (${ARCH}) using electron-builder ==="
 if [ "$UPLOAD" = true ]; then
@@ -93,9 +93,9 @@ rm -rf "$ELECTRON_DIR/packages"
 rm -rf "$ELECTRON_DIR/release"
 
 # 2. Install dependencies
-echo "Installing dependencies..."
+echo "Installing dependencies from the committed lockfile..."
 cd "$ROOT_DIR"
-bun install
+bun install --frozen-lockfile
 
 # 3. Download Bun binary with checksum verification
 echo "Downloading Bun ${BUN_VERSION} for darwin-${ARCH}..."
@@ -151,8 +151,21 @@ if [ ! -d "$SDK_BIN_SOURCE" ]; then
     trap "rm -rf $PKG_TMP" RETURN
     (
         cd "$PKG_TMP"
-        npm pack "@anthropic-ai/${SDK_BIN_PKG}@${SDK_VERSION}" >/dev/null
-        TARBALL=$(ls anthropic-ai-*.tgz | head -1)
+        SDK_PACKAGE="@anthropic-ai/${SDK_BIN_PKG}"
+        PACK_RESULT="$(npm pack --json "${SDK_PACKAGE}@${SDK_VERSION}")"
+        TARBALL="$(node -e 'const p = JSON.parse(process.argv[1])[0]; if (!p?.filename || !p?.version) process.exit(1); process.stdout.write(p.filename)' "$PACK_RESULT")"
+        PACKED_VERSION="$(node -e 'const p = JSON.parse(process.argv[1])[0]; if (!p?.version) process.exit(1); process.stdout.write(p.version)' "$PACK_RESULT")"
+        [ -f "$TARBALL" ] || { echo "ERROR: npm pack did not produce its declared tarball." >&2; exit 1; }
+        INTEGRITY="$(npm view "${SDK_PACKAGE}@${PACKED_VERSION}" dist.integrity)"
+        node - "$TARBALL" "$INTEGRITY" <<'NODE'
+const crypto = require('crypto');
+const fs = require('fs');
+const [tarball, integrity] = process.argv.slice(2);
+const match = /^([a-z0-9-]+)-([A-Za-z0-9+/=]+)$/i.exec(integrity.trim());
+if (!match) throw new Error('npm registry did not return a valid dist.integrity value');
+const actual = crypto.createHash(match[1]).update(fs.readFileSync(tarball)).digest('base64');
+if (actual !== match[2]) throw new Error(`npm tarball integrity mismatch for ${tarball}`);
+NODE
         tar -xzf "$TARBALL"
     )
     mkdir -p "$SDK_BIN_SOURCE"
@@ -205,6 +218,11 @@ for dep in interceptor-common.ts feature-flags.ts interceptor-request-utils.ts; 
   fi
 done
 
+# 5b. Generate the native icon with Apple tooling. The generator validates the
+# exact approved source hash and fails closed before any app bundle is produced.
+echo "Generating native Mkrate macOS icon..."
+bash "$SCRIPT_DIR/generate-macos-icon.sh"
+
 # 6. Build Electron app
 echo "Building Electron app..."
 cd "$ROOT_DIR"
@@ -214,37 +232,13 @@ bun run electron:build
 echo "Packaging app with electron-builder..."
 cd "$ELECTRON_DIR"
 
-# Set up environment for electron-builder. CI builds without an Apple
-# Developer ID should stay unsigned instead of failing identity discovery.
-if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
-    export CSC_IDENTITY_AUTO_DISCOVERY=true
-else
-    export CSC_IDENTITY_AUTO_DISCOVERY=false
-fi
+# v0.0.1 deliberately ships unsigned and unnotarized. Do not discover or use
+# ambient signing credentials: the post-build checks below fail if that policy drifts.
+export CSC_IDENTITY_AUTO_DISCOVERY=false
+unset CSC_NAME CSC_LINK APPLE_SIGNING_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD NOTARIZE
 
 # Build electron-builder arguments
 BUILDER_ARGS="--mac --${ARCH}"
-
-# Add code signing if identity is available
-if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
-    # Strip "Developer ID Application: " prefix if present (electron-builder adds it automatically)
-    CSC_NAME_CLEAN="${APPLE_SIGNING_IDENTITY#Developer ID Application: }"
-    echo "Using signing identity: $CSC_NAME_CLEAN"
-    export CSC_NAME="$CSC_NAME_CLEAN"
-fi
-
-# Add notarization if all credentials are available
-if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
-    echo "Notarization enabled"
-    export APPLE_ID="$APPLE_ID"
-    export APPLE_TEAM_ID="$APPLE_TEAM_ID"
-    export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD"
-
-    # Enable notarization in electron-builder by setting env vars
-    # The electron-builder.yml has notarize section commented out,
-    # but we can enable it via environment
-    export NOTARIZE=true
-fi
 
 # Run electron-builder
 npx electron-builder $BUILDER_ARGS --publish never
@@ -287,6 +281,39 @@ if [ ! -f "$DMG_PATH" ]; then
     ls -la "$ELECTRON_DIR/release/"
     exit 1
 fi
+
+# Validate the staged bundle before accepting the matching DMG/ZIP names.
+APP_BUNDLE="$ELECTRON_DIR/release/mac-${ARCH}/Mkrate.app"
+require_path "$APP_BUNDLE" "Mkrate ${ARCH} app bundle" "electron-builder did not stage the expected Mkrate.app bundle."
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE/Contents/Info.plist")"
+BUNDLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP_BUNDLE/Contents/Info.plist")"
+[ "$BUNDLE_ID" = "ru.mkrate.desktop" ] || { echo "ERROR: unexpected bundle id: $BUNDLE_ID" >&2; exit 1; }
+[ "$BUNDLE_NAME" = "Mkrate" ] || { echo "ERROR: unexpected bundle name: $BUNDLE_NAME" >&2; exit 1; }
+require_path "$APP_BUNDLE/Contents/Resources/icon.icns" "native Mkrate bundle icon" "Native icon was not copied into the Mkrate bundle."
+BUNDLE_ARCHES="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/Mkrate")"
+EXPECTED_BUNDLE_ARCH="$ARCH"
+[ "$ARCH" = "x64" ] && EXPECTED_BUNDLE_ARCH="x86_64"
+echo "$BUNDLE_ARCHES" | grep -qw "$EXPECTED_BUNDLE_ARCH" || { echo "ERROR: bundle executable arches '$BUNDLE_ARCHES' do not include $EXPECTED_BUNDLE_ARCH." >&2; exit 1; }
+
+SIGNING_INFO="$(codesign -dv "$APP_BUNDLE" 2>&1 || true)"
+if codesign --verify --deep --strict "$APP_BUNDLE" >/dev/null 2>&1; then
+    echo "$SIGNING_INFO" | grep -qi 'Signature=adhoc' || { echo "ERROR: expected unsigned/ad-hoc bundle, found a signed bundle." >&2; exit 1; }
+    echo "Signing status: ad-hoc (expected; not notarized)"
+elif echo "$SIGNING_INFO" | grep -qiE 'not signed|code object is not signed'; then
+    echo "Signing status: unsigned (expected; not notarized)"
+else
+    echo "ERROR: could not prove the bundle is unsigned or ad-hoc." >&2
+    echo "$SIGNING_INFO" >&2
+    exit 1
+fi
+if xcrun stapler validate "$APP_BUNDLE" >/dev/null 2>&1; then
+    echo "ERROR: expected an unnotarized v0.0.1 bundle, but a notarization ticket is present." >&2
+    exit 1
+fi
+echo "Notarization status: not notarized (expected)"
+
+# Artifact identity is intentionally predictable for exact-tag verification.
+require_path "$ELECTRON_DIR/release/Mkrate-${ARCH}.zip" "Mkrate ${ARCH} ZIP" "Expected matching ZIP artifact."
 
 echo ""
 echo "=== Build Complete ==="

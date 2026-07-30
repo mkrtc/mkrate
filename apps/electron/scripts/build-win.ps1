@@ -8,7 +8,7 @@ $ElectronDir = Split-Path -Parent $ScriptDir
 $RootDir = Split-Path -Parent (Split-Path -Parent $ElectronDir)
 
 # Configuration
-$BunVersion = "bun-v1.3.9"  # Pinned version for reproducible builds
+$BunVersion = "bun-v1.3.10"  # Pinned version for reproducible builds
 
 Write-Host "=== Building Mkrate Windows Installer using electron-builder ===" -ForegroundColor Cyan
 
@@ -92,10 +92,10 @@ foreach ($folder in $foldersToClean) {
 }
 
 # 2. Install dependencies
-Write-Host "Installing dependencies..."
+Write-Host "Installing dependencies from the committed lockfile..."
 Push-Location $RootDir
 try {
-    bun install
+    bun install --frozen-lockfile
 } finally {
     Pop-Location
 }
@@ -179,10 +179,28 @@ if (-not (Test-Path $SdkBinSource)) {
     $PkgTmp = New-Item -ItemType Directory -Path ([System.IO.Path]::Combine($env:TEMP, [System.Guid]::NewGuid().ToString()))
     try {
         Push-Location $PkgTmp
-        npm pack "@anthropic-ai/$SdkBinPkg@$SdkVersion" | Out-Null
-        $Tarball = Get-ChildItem -Filter "anthropic-ai-*.tgz" | Select-Object -First 1
-        tar -xzf $Tarball.Name
-        Pop-Location
+        try {
+            $SdkPackage = "@anthropic-ai/$SdkBinPkg"
+            $PackResult = npm pack --json "$SdkPackage@$SdkVersion" | ConvertFrom-Json
+            if (-not $PackResult.filename -or -not $PackResult.version) {
+                throw "npm pack did not report an exact tarball filename and version"
+            }
+            $Tarball = Join-Path $PkgTmp $PackResult.filename
+            if (-not (Test-Path $Tarball)) { throw "npm pack did not create $Tarball" }
+            $Integrity = (npm view "$SdkPackage@$($PackResult.version)" dist.integrity).Trim()
+            if ($Integrity -notmatch '^([a-zA-Z0-9-]+)-([A-Za-z0-9+/=]+)$') {
+                throw "npm registry did not return a valid dist.integrity value"
+            }
+            $Algorithm = $Matches[1].ToUpperInvariant().Replace('-', '')
+            $ExpectedDigest = $Matches[2]
+            $ActualDigest = [Convert]::ToBase64String([System.Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([System.IO.File]::ReadAllBytes($Tarball)))
+            if ($ActualDigest -ne $ExpectedDigest) {
+                throw "npm tarball integrity mismatch for $Tarball"
+            }
+            tar -xzf $Tarball
+        } finally {
+            Pop-Location
+        }
         New-Item -ItemType Directory -Force -Path $SdkBinSource | Out-Null
         Copy-Item -Recurse -Force "$PkgTmp\package\*" $SdkBinSource
     } finally {
@@ -466,6 +484,14 @@ if (-not $InstallerPath) {
     Get-ChildItem "$ElectronDir\release"
     exit 1
 }
+
+# v0.0.1 intentionally has no Authenticode certificate. Fail closed if ambient
+# credentials or a builder default ever produce a signed installer.
+$Signature = Get-AuthenticodeSignature -FilePath $InstallerPath.FullName
+if ($Signature.Status -ne 'NotSigned') {
+    throw "Expected unsigned installer (Authenticode NotSigned), got $($Signature.Status): $($Signature.StatusMessage)"
+}
+Write-Host "Authenticode status: NotSigned (expected)" -ForegroundColor Yellow
 
 Write-Host ""
 Write-Host "=== Build Complete ===" -ForegroundColor Green

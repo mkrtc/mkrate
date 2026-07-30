@@ -180,11 +180,61 @@ describe('Mkrate product identity (apps/electron/package.json)', () => {
   })
 })
 
-describe('afterPack references the Mkrate .app bundle name', () => {
-  it('matches the new productName', () => {
-    const afterPack = read(electronDir, 'scripts', 'afterPack.cjs')
-    expect(afterPack).toContain('Mkrate.app')
+describe('native macOS Mkrate icon release contract', () => {
+  const afterPack = read(electronDir, 'scripts', 'afterPack.cjs')
+  const dmgScript = read(electronDir, 'scripts', 'build-dmg.sh')
+  const iconGenerator = read(electronDir, 'scripts', 'generate-macos-icon.sh')
+
+  it('uses a generated native icon for the Mkrate bundle and plain DMG', () => {
+    expect(builder).toMatch(/mac:[\s\S]*?icon:\s*resources\/icon\.icns/)
+    expect(builder).toMatch(/dmg:[\s\S]*?icon:\s*resources\/icon\.icns/)
+    expect(afterPack).toContain("productName !== 'Mkrate'")
     expect(afterPack).not.toContain('Craft Agents.app')
+    expect(afterPack).toContain('CANONICAL_ICON_SHA256')
+    expect(afterPack).toContain('icon.icns')
+    expect(afterPack).not.toContain('copyFileSync')
+  })
+
+  it('generates and structurally verifies the icon on macOS from the pinned raster only', () => {
+    expect(iconGenerator).toContain('mkrate-icon-1024.png')
+    expect(iconGenerator).toContain('941584a70cef656815c36e6ab48885579f8c428f6847e81edfbf5e7b970b41b6')
+    expect(iconGenerator).toContain('sips')
+    expect(iconGenerator).toContain('iconutil -c icns')
+    expect(iconGenerator).toContain('iconutil -c iconset')
+    expect(iconGenerator).not.toContain('Craft Agents.app')
+    expect(iconGenerator).not.toContain('craft-logos')
+    expect(dmgScript).toContain('generate-macos-icon.sh')
+    expect(dmgScript).toContain('ru.mkrate.desktop')
+    expect(dmgScript).toContain('Mkrate.app')
+    expect(dmgScript).toContain('not notarized')
+  })
+})
+
+describe('cross-platform reproducible packaging contracts', () => {
+  const linuxScript = read(electronDir, 'scripts', 'build-linux.sh')
+  const dmgScript = read(electronDir, 'scripts', 'build-dmg.sh')
+  const winScript = read(electronDir, 'scripts', 'build-win.ps1')
+
+  it('pins embedded Bun 1.3.10 and installs only from the frozen lockfile', () => {
+    for (const script of [linuxScript, dmgScript, winScript]) {
+      expect(script).toContain('1.3.10')
+      expect(script).toContain('bun install --frozen-lockfile')
+    }
+  })
+
+  it('verifies cross-architecture npm tarballs against registry dist.integrity before extraction', () => {
+    for (const script of [linuxScript, dmgScript, winScript]) {
+      expect(script).toContain('dist.integrity')
+      expect(script).toContain('npm pack --json')
+      expect(script.indexOf('dist.integrity')).toBeLessThan(script.lastIndexOf('tar -xzf'))
+    }
+  })
+
+  it('reports the deliberate unsigned release status on Windows and macOS', () => {
+    expect(winScript).toContain('Get-AuthenticodeSignature')
+    expect(winScript).toContain("'NotSigned'")
+    expect(dmgScript).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false')
+    expect(dmgScript).toContain('Signing status:')
   })
 })
 
@@ -269,11 +319,20 @@ describe('Mkrate assistant persona and co-author trailer', () => {
   })
 })
 
-describe('README makes no live binary/install/update claim', () => {
+describe('README release-readiness claims', () => {
   const readme = read(repoRoot, 'README.md')
 
-  it('states plainly that no Mkrate binaries/installers/releases are published yet', () => {
-    expect(readme).toContain('There are no published Mkrate binaries, installers, or releases yet.')
+  it('accurately distinguishes prepared packaging from the first unpublished release', () => {
+    expect(readme).toContain('No Mkrate Desktop release has been published yet.')
+    expect(readme).toContain('Linux x64, macOS arm64/x64, and Windows x64')
+    expect(readme).not.toContain('repository/Releases page referenced throughout this')
+  })
+
+  it('discloses the deliberate unsigned and unnotarized status without blocking native macOS packaging', () => {
+    expect(readme).toMatch(/artifacts are intentionally \*\*unsigned\*\*/)
+    expect(readme).toMatch(/macOS artifacts are also[\s\S]*\*\*unnotarized\*\*/)
+    expect(readme).toContain('standard native Mkrate `.icns`')
+    expect(readme).not.toMatch(/macOS[^\n]*packaging[^\n]*blocked/i)
   })
 
   it('offers no copy-pastable one-line installer presented as currently working', () => {
@@ -281,14 +340,11 @@ describe('README makes no live binary/install/update claim', () => {
     expect(readme).not.toMatch(/irm[^\n]*install-app\.ps1[^\n]*\|\s*iex/)
   })
 
-  it('keeps macOS native packaging explicitly blocked', () => {
-    expect(readme).toMatch(/macOS[^\n]*packaging[^\n]*blocked/i)
-  })
-
-  it('does not present the old Craft macOS app path as an available command', () => {
+  it('uses Mkrate packaged debug paths rather than a retired Craft app name', () => {
     expect(readme).not.toContain('/Applications/Craft\\ Agents.app')
-    expect(readme).toContain('macOS (future packaged build only; unavailable today)')
+    expect(readme).toContain('macOS (published packaged build)')
     expect(readme).toContain('/Applications/Mkrate.app/Contents/MacOS/Mkrate -- --debug')
+    expect(readme).toContain('mkrate -- --debug')
   })
 })
 

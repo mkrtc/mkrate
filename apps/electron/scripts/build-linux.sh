@@ -63,7 +63,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration
-BUN_VERSION="bun-v1.3.9"  # Pinned version for reproducible builds
+BUN_VERSION="bun-v1.3.10"  # Pinned version for reproducible builds
 
 echo "=== Building Mkrate AppImage (${ARCH}) using electron-builder ==="
 if [ "$UPLOAD" = true ]; then
@@ -78,9 +78,9 @@ rm -rf "$ELECTRON_DIR/packages"
 rm -rf "$ELECTRON_DIR/release"
 
 # 2. Install dependencies
-echo "Installing dependencies..."
+echo "Installing dependencies from the committed lockfile..."
 cd "$ROOT_DIR"
-bun install
+bun install --frozen-lockfile
 
 # 3. Download Bun binary with checksum verification
 echo "Downloading Bun ${BUN_VERSION} for linux-${ARCH}..."
@@ -133,8 +133,21 @@ if [ ! -d "$SDK_BIN_SOURCE" ]; then
     trap "rm -rf $PKG_TMP" RETURN
     (
         cd "$PKG_TMP"
-        npm pack "@anthropic-ai/${SDK_BIN_PKG}@${SDK_VERSION}" >/dev/null
-        TARBALL=$(ls anthropic-ai-*.tgz | head -1)
+        SDK_PACKAGE="@anthropic-ai/${SDK_BIN_PKG}"
+        PACK_RESULT="$(npm pack --json "${SDK_PACKAGE}@${SDK_VERSION}")"
+        TARBALL="$(node -e 'const p = JSON.parse(process.argv[1])[0]; if (!p?.filename || !p?.version) process.exit(1); process.stdout.write(p.filename)' "$PACK_RESULT")"
+        PACKED_VERSION="$(node -e 'const p = JSON.parse(process.argv[1])[0]; if (!p?.version) process.exit(1); process.stdout.write(p.version)' "$PACK_RESULT")"
+        [ -f "$TARBALL" ] || { echo "ERROR: npm pack did not produce its declared tarball." >&2; exit 1; }
+        INTEGRITY="$(npm view "${SDK_PACKAGE}@${PACKED_VERSION}" dist.integrity)"
+        node - "$TARBALL" "$INTEGRITY" <<'NODE'
+const crypto = require('crypto');
+const fs = require('fs');
+const [tarball, integrity] = process.argv.slice(2);
+const match = /^([a-z0-9-]+)-([A-Za-z0-9+/=]+)$/i.exec(integrity.trim());
+if (!match) throw new Error('npm registry did not return a valid dist.integrity value');
+const actual = crypto.createHash(match[1]).update(fs.readFileSync(tarball)).digest('base64');
+if (actual !== match[2]) throw new Error(`npm tarball integrity mismatch for ${tarball}`);
+NODE
         tar -xzf "$TARBALL"
     )
     mkdir -p "$SDK_BIN_SOURCE"

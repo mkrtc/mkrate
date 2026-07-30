@@ -4,7 +4,7 @@ copyright: Copyright © 2026 Mkrate. Based on Craft Agents, © 2026 Craft Docs L
 
 electronVersion: "39.2.7"
 
-# Hook to compile macOS 26+ Liquid Glass icon after packaging
+# Hook to verify the native Mkrate macOS icon after packaging
 afterPack: scripts/afterPack.cjs
 
 directories:
@@ -86,19 +86,10 @@ asar: false
 
 mac:
   category: public.app-category.productivity
-  # DEFERRED — macOS production packaging is BLOCKED in this phase.
-  # The old Craft `icon.icns`, `Assets.car` (Liquid Glass), and `icon.icon` asset
-  # catalog were removed with the rebrand; native macOS icon containers must be
-  # regenerated on macOS (iconutil / actool) from the approved Mkrate SVG in
-  # docs/brand/assets/ before ANY macOS binary is released. See
-  # ../../docs/branding/icon-inventory.md and scripts/afterPack.cjs.
-  # `icon` points at the platform-neutral Mkrate PNG so local/dev builds resolve a
-  # valid derived icon; it is NOT a Liquid-Glass-ready release asset. Do not ship
-  # macOS builds from this phase.
-  icon: resources/icon.png
-  # macOS 26+ Liquid Glass (CFBundleIconName + Assets.car) is intentionally
-  # disabled until the native asset catalog is regenerated on macOS:
-  #   CFBundleIconName: AppIcon
+  # Generated on macOS by scripts/generate-macos-icon.sh from the canonical
+  # Mkrate PNG. It is a v0.0.1 release input and must never be substituted with
+  # retired Craft artwork. Liquid Glass Assets.car remains deliberately deferred.
+  icon: resources/icon.icns
   extendInfo:
     # Required for macOS to list the app under Privacy & Security > Local Network
     # and prompt for permission. Without it the app is silently denied LAN access
@@ -139,18 +130,15 @@ mac:
     - "!**/resources/bin/linux-*/**"
   # Use predictable naming for macOS packages (applies to zip; dmg uses its own config below)
   artifactName: "Mkrate-${arch}.${ext}"
-  # Code signing & notarization (disabled by default for local builds)
-  # To enable: set CSC_LINK, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
-  # notarize:
-  #   teamId: ${APPLE_TEAM_ID}
+  # v0.0.1 artifacts are intentionally unsigned and unnotarized. Build scripts
+  # explicitly disable signing discovery and verify/report that state.
 
 dmg:
   # Use predictable naming: Mkrate-arm64.dmg, Mkrate-x64.dmg
   artifactName: "Mkrate-${arch}.dmg"
-  # DEFERRED (see mac: block). The old Craft DMG background and `.icns` volume
-  # icon were removed with the rebrand; a branded Mkrate DMG background and native
-  # `.icns` volume icon must be produced on macOS before any macOS DMG is shipped.
-  # electron-builder falls back to a plain background / default volume icon here.
+  # v0.0.1 uses the generated native Mkrate volume icon and a plain DMG. Custom
+  # background artwork remains deferred rather than reusing retired Craft artwork.
+  icon: resources/icon.icns
   iconSize: 80
   title: "Mkrate"
   contents:

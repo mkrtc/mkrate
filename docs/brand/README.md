@@ -45,6 +45,8 @@ The wordmark uses **Inter SemiBold (600)** under the SIL Open Font License 1.1. 
 
 Brand assets are covered by this repository's [`LICENSE`](../../LICENSE) and [`NOTICE`](../../NOTICE). Inter is separately licensed under SIL OFL 1.1.
 
-## Deferred platform work
+## macOS packaging policy
 
-macOS `.icns` and `Assets.car` generation still requires Apple tooling and remains deferred. macOS production packaging is blocked until those containers are generated and validated on macOS. Windows `.ico` is generated from the approved PNG using ImageMagick.
+The v0.0.1 macOS build generates `apps/electron/resources/icon.icns` on its macOS runner from the canonical PNG only. `scripts/generate-macos-icon.sh` pins the canonical SHA-256, produces every standard iconset size with `sips`, compiles it with `iconutil`, and fails closed if generation or structural validation fails. The generated `.icns` is a build input, not a committed replacement for the canonical source.
+
+macOS 26 Liquid Glass `Assets.car` and a custom DMG background remain explicitly deferred enhancements. v0.0.1 instead ships a plain DMG with the native Mkrate `.icns`; it must never revive retired Craft artwork. Windows `.ico` is generated from the approved PNG using ImageMagick.

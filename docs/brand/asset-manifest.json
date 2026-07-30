@@ -134,8 +134,8 @@
       "file": "README.md",
       "format": "Markdown",
       "use": "Brand asset source and handoff notes",
-      "bytes": 3198,
-      "sha256": "c653881301f52b1dece24f8090125e5678a7bcc60379ae38890872b0579e8602"
+      "bytes": 3635,
+      "sha256": "9a74ac31edd47e11b74695387c03e3c3ef273f2773e56f41d8c6a67db7a491ae"
     }
   ],
   "repositoryOutputs": [
@@ -266,10 +266,10 @@
   },
   "deferred": {
     "macos": [
-      "apps/electron/resources/icon.icns",
       "apps/electron/resources/Assets.car",
-      "apps/electron/resources/icon.icon/"
+      "apps/electron/resources/icon.icon/",
+      "apps/electron/resources/dmg-background.*"
     ],
-    "note": "macOS native containers are not regenerated on Linux; production macOS packaging remains blocked until native generation/validation."
+    "note": "The release macOS runner generates and validates icon.icns from the canonical PNG with Apple tooling. Liquid Glass Assets.car and custom DMG background artwork remain deferred."
   }
 }

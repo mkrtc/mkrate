@@ -93,24 +93,24 @@ Yes. That's the core idea behind agent-native software. You describe what you wa
 ## Installation
 
 > [!IMPORTANT]
-> **There are no published Mkrate binaries, installers, or releases yet.**
-> Mkrate does **not** currently ship a prebuilt desktop app, a one-line installer, or a live
-> update feed, and the `mkrtc/mkrate` GitHub repository/Releases page referenced throughout this
-> README is **not yet public**. The only supported way to run Mkrate today is to
+> **No Mkrate Desktop release has been published yet.** The v0.0.1 packaging path is prepared for
+> Linux x64, macOS arm64/x64, and Windows x64, but installers and the update feed become available
+> only after the immutable release tag is published. Until then, use
 > **[build it from source](#build-this-fork-from-source)**.
 >
-> macOS is additionally gated: **native macOS packaging (app bundle, code signing, and `.icns`
-> icons) is intentionally blocked** and has not been regenerated for Mkrate, so no macOS build can
-> be produced or shipped in this state.
+> v0.0.1 desktop artifacts are intentionally **unsigned**; macOS artifacts are also
+> **unnotarized**. The macOS build generates and validates a standard native Mkrate `.icns` from
+> the approved canonical PNG. macOS 26 Liquid Glass assets and a custom DMG background remain
+> deferred and are not release blockers.
 
-### Prebuilt install (not available yet)
+### Prebuilt install (available after the first release)
 
-When a desktop release is eventually published, the repository already contains install scripts
-(`scripts/install-app.sh`, `scripts/install-app.ps1`) and an updater wired to read artifacts from
-Mkrate's GitHub Releases at `mkrtc/mkrate`. **Those release URLs are planned intent, not a live
-download** — until a release is actually cut and the repository is public, the install scripts have
-nothing to fetch and are not expected to work. No copy-paste installer command is offered here on
-purpose.
+After a Mkrate Desktop release is published, the repository's install scripts
+(`scripts/install-app.sh`, `scripts/install-app.ps1`) and updater use the matching GitHub Release
+at `mkrtc/mkrate`. Verify the exact release version and platform artifact before installing; no
+one-line remote-shell command is presented here. The Linux installer performs a first install
+without signalling running processes and, on upgrades, only stops processes proven to execute the
+installed AppImage.
 
 ### Official upstream install
 
@@ -119,13 +119,10 @@ instructions from [`craft-ai-agents/craft-agents-oss`](https://github.com/craft-
 
 ### Build this fork from Source
 
-Building from source requires [Bun](https://bun.sh/). From a checkout of this repository
-(the `mkrtc/mkrate` remote is not yet public, so clone it once it is available, or work from
-your existing local copy):
+Building from source requires [Bun](https://bun.sh/). From a checkout of this repository:
 
 ```bash
-# once the repository is published you'll be able to clone it:
-#   git clone https://github.com/mkrtc/mkrate.git
+git clone https://github.com/mkrtc/mkrate.git
 cd mkrate
 bun install
 bun run electron:start
@@ -133,7 +130,7 @@ bun run electron:start
 
 > [!NOTE]
 > `electron:start` runs the app from source on Linux and Windows. It does **not** produce a
-> distributable installer, and macOS packaging remains blocked (see the note above).
+> distributable installer; use the release build scripts on their native platforms for packaging.
 
 ## Features
 
@@ -638,11 +635,9 @@ craftagents://action/new-chat                  # Create new session
 
 To launch the packaged app with verbose logging enabled, use `-- --debug` (note the double dash separator):
 
-**macOS (future packaged build only; unavailable today):**
+**macOS (published packaged build):**
 ```bash
-# Native macOS packaging is currently blocked. If it is restored and a Mkrate
-# macOS package is published, its debug command will be:
-# /Applications/Mkrate.app/Contents/MacOS/Mkrate -- --debug
+/Applications/Mkrate.app/Contents/MacOS/Mkrate -- --debug
 ```
 
 **Windows (PowerShell):**
@@ -652,7 +647,7 @@ To launch the packaged app with verbose logging enabled, use `-- --debug` (note 
 
 **Linux:**
 ```bash
-./craft-agents -- --debug
+mkrate -- --debug
 ```
 
 Logs are written to:

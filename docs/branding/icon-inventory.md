@@ -1,12 +1,11 @@
 # Visual Asset Inventory & Rebrand Closure (Task E)
 
-> Status: **updated 2026-07-27 for the approved Mkrate kraken logo.** Every current
-> desktop/mobile-facing logo source and Linux/Windows/WebUI derivative now comes from the
-> exact approved 1024×1024 PNG; the former five-node graph mark is retired. macOS native icon containers
-> (`.icns`, `Assets.car`) are intentionally **not** regenerated in this phase — macOS
-> production packaging is **blocked/deferred** until they are produced natively on macOS.
-> Canonical brand sources, guidelines, license, and the asset manifest live in
-> [`../brand/`](../brand/).
+> Status: **updated 2026-07-30 for v0.0.1 packaging.** Every desktop/mobile-facing
+> logo source and Linux/Windows/WebUI derivative comes from the exact approved 1024×1024 PNG;
+> the former five-node graph mark is retired. The release macOS build produces and validates a
+> standard native `.icns` on macOS from that PNG only. Liquid Glass `Assets.car` remains deferred
+> and no retired Craft artwork is eligible for restoration. Canonical brand sources, guidelines,
+> license, and the asset manifest live in [`../brand/`](../brand/).
 
 ## Brand source integration
 
@@ -23,16 +22,15 @@
 | `apps/electron/resources/icon.png` | **Replaced** → 512×512 Mkrate app icon. |
 | `apps/electron/resources/icon.ico` | **Regenerated** on Linux (ImageMagick) → multi-res 16–256 Mkrate, alpha preserved. |
 | `apps/electron/resources/source.png` | **Replaced** → 1024×1024 Mkrate app icon (generator source). |
-| `apps/electron/resources/icon.icns` | **Removed** (Craft macOS icon). macOS `.icns` deferred. |
-| `apps/electron/resources/Assets.car` | **Removed** (Craft Liquid Glass catalog). Deferred. |
-| `apps/electron/resources/icon.icon/` | **Removed** (Craft asset-catalog source + manifest). Deferred. |
+| `apps/electron/resources/icon.icns` | **Generated and validated on macOS per release build** from the exact canonical PNG by `scripts/generate-macos-icon.sh`; required by `mac.icon` and `dmg.icon`. It is not checked in and must not be substituted. |
+| `apps/electron/resources/Assets.car` | **Deferred** (macOS 26 Liquid Glass enhancement); no retired Craft catalog is reused. |
+| `apps/electron/resources/icon.icon/` | **Deferred** (future asset-catalog source); not a v0.0.1 packaging requirement. |
 
-**macOS regeneration (deferred):** recreate `resources/icon.icon/` from
-`docs/brand/assets/mkrate-icon-square.svg`, recompile `Assets.car`, and regenerate `icon.icns`
-on macOS (see `apps/electron/scripts/afterPack.cjs` and `resources/generate-icons.sh`), then
-restore the `mac.icon` / `CFBundleIconName` / `dmg.icon` references in `electron-builder.yml`.
-Until then `electron-builder.yml` points `mac.icon` at the platform-neutral PNG and
-`afterPack.cjs` emits a loud "do not release macOS build" warning.
+**macOS v0.0.1 generation:** `scripts/build-dmg.sh` runs
+`scripts/generate-macos-icon.sh` before packaging. The helper verifies the canonical PNG SHA-256,
+generates the standard 16–1024px iconset with `sips`, compiles with `iconutil`, and re-expands
+and validates the resulting `.icns`. `afterPack.cjs` then verifies the canonical source and the
+native icon inside `Mkrate.app`. The build fails closed for a missing or mismatched icon.
 
 **Linux/Windows regeneration:** `apps/electron/resources/generate-icons-linux.sh`
 (ImageMagick, no Apple tooling) reproduces `icon.png` / `icon.ico` / `source.png` / `icon.svg`
@@ -46,9 +44,9 @@ from the approved brand PNGs.
 | `apps/electron/resources/dmg-background.png` | **Removed**. |
 | `apps/electron/resources/dmg-background@2x.png` | **Removed**. |
 
-DMG packaging is macOS-only and deferred; `dmg.background` / `dmg.icon` references were removed
-from `electron-builder.yml` (electron-builder falls back to defaults). A branded Mkrate DMG
-background must be produced before any macOS DMG is shipped.
+v0.0.1 DMG packaging is macOS-only and uses a plain native DMG with the generated Mkrate
+`.icns` volume icon. `dmg.background` remains intentionally unset: a custom branded background
+is a future enhancement, never a reason to restore retired Craft DMG art.
 
 ## 3. Logo image files
 
