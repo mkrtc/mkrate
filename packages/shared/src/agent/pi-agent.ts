@@ -57,8 +57,9 @@ import type { ProjectPromptContext } from '../projects/types.ts';
 // Credential manager for token storage
 import { getCredentialManager } from '../credentials/manager.ts';
 
-// ChatGPT OAuth token refresh (used when Pi routes ChatGPT auth)
+// OAuth token refresh helpers used by Pi-backed subscription providers
 import { refreshChatGptTokens } from '../auth/chatgpt-oauth.ts';
+import { refreshGitHubCopilotCredential } from './copilot-oauth.ts';
 
 // Session-scoped tool callbacks (for SubmitPlan, source auth, etc.)
 import {
@@ -831,8 +832,7 @@ export class PiAgent extends BaseAgent {
       try {
         if (piAuthProvider === 'github-copilot') {
           // Copilot: refresh the short-lived Copilot token using the GitHub access token
-          const { refreshGitHubCopilotToken } = await import('@earendil-works/pi-ai/oauth');
-          const newCreds = await refreshGitHubCopilotToken(stored.refreshToken);
+          const newCreds = await refreshGitHubCopilotCredential(stored.refreshToken);
           await credentialManager.setLlmOAuth(slug, {
             accessToken: newCreds.access,
             refreshToken: newCreds.refresh,

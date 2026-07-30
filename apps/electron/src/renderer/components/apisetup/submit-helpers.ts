@@ -2,6 +2,14 @@ import type { CustomEndpointApi, CustomEndpointConfig } from '@config/llm-connec
 
 export type PresetKey = string
 
+/** Official Kimi Code model IDs offered by the built-in Kimi preset. */
+export const KIMI_CODING_DEFAULT_MODELS = [
+  'k3',
+  'k3-256k',
+  'kimi-for-coding',
+  'kimi-for-coding-highspeed',
+] as const
+
 /**
  * Preset keys that are regional variants of a canonical Pi auth provider.
  * The Pi SDK recognizes both 'minimax' and 'minimax-cn' as separate providers

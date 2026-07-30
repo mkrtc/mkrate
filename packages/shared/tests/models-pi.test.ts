@@ -36,4 +36,21 @@ describe('models-pi filtering', () => {
     expect(ids).toContain('pi/deepseek-v4-flash');
     expect(ids).toContain('pi/deepseek-v4-pro');
   });
+
+  it('returns Kimi K3 models with their official context and reasoning capabilities', () => {
+    const models = getPiModelsForAuthProvider('kimi-coding');
+    const k3 = models.find(model => model.id === 'pi/k3');
+    const k3_256k = models.find(model => model.id === 'pi/k3-256k');
+
+    expect(k3).toMatchObject({
+      name: 'Kimi K3',
+      contextWindow: 1_048_576,
+      supportsThinking: true,
+    });
+    expect(k3_256k).toMatchObject({
+      name: 'Kimi K3-256K',
+      contextWindow: 262_144,
+      supportsThinking: true,
+    });
+  });
 });

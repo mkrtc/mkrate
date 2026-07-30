@@ -2,6 +2,7 @@ import type { ProviderDriver, DriverTestConnectionArgs } from '../driver-types.t
 import type { ModelDefinition } from '../../../../config/models.ts';
 import { getAllPiModels, getPiModelsForAuthProvider, isDeprecatedClaudeOpus46Model } from '../../../../config/models-pi.ts';
 import { getPiProviderBaseUrl } from '../../../../config/models-pi.ts';
+import { refreshGitHubCopilotCredential } from '../../../copilot-oauth.ts';
 
 // ── Copilot model types ────────────────────────────────────────────────
 type RawCopilotModel = {
@@ -43,10 +44,8 @@ async function listModelsViaHttp(
   githubToken: string,
   timeoutMs: number,
 ): Promise<RawCopilotModel[]> {
-  const { refreshGitHubCopilotToken } = await import('@earendil-works/pi-ai/oauth');
-
   // Step 1: Exchange GitHub OAuth token → Copilot API token
-  const creds = await refreshGitHubCopilotToken(githubToken);
+  const creds = await refreshGitHubCopilotCredential(githubToken);
   const copilotToken = creds.access;
 
   // Step 2: Extract base URL from token

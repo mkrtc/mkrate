@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  KIMI_CODING_DEFAULT_MODELS,
   resolveCustomEndpointPayload,
   resolvePiAuthProviderForSubmit,
   resolvePresetStateForBaseUrlChange,
@@ -11,6 +12,17 @@ const MODELS = [
   { id: 'pi/zai-balanced', name: 'Balanced', costInput: 5, costOutput: 10, contextWindow: 200000, reasoning: true },
   { id: 'pi/zai-fast', name: 'Fast', costInput: 1, costOutput: 2, contextWindow: 128000, reasoning: false },
 ]
+
+describe('Kimi Coding preset defaults', () => {
+  it('offers Kimi K3 first while preserving current K2.7 fallback models', () => {
+    expect(KIMI_CODING_DEFAULT_MODELS).toEqual([
+      'k3',
+      'k3-256k',
+      'kimi-for-coding',
+      'kimi-for-coding-highspeed',
+    ])
+  })
+})
 
 describe('ApiKeyInput tier hydration helpers', () => {
   it('resolveTierModels keeps saved tier selections when all are valid', () => {

@@ -4,6 +4,8 @@ This file accumulates release notes for the next unreleased version. PRs that ad
 
 ## Features
 
+- **Kimi K3 support** — the Kimi Coding provider now offers Kimi K3 and K3-256K with their full reasoning and context-window capabilities.
+
 ## Improvements
 
 ## Bug Fixes

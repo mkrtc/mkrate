@@ -14,8 +14,10 @@
  */
 
 import { getProviders, getModels } from '@earendil-works/pi-ai/compat';
-import type { KnownProvider, Model, Api } from '@earendil-works/pi-ai';
+import type { Model, Api } from '@earendil-works/pi-ai';
 import type { ModelDefinition } from './models.ts';
+
+type PiCatalogProvider = Parameters<typeof getModels>[0];
 
 // ============================================
 // PI MODEL DISCOVERY
@@ -99,7 +101,7 @@ function isBareBedrockClaudeModel(modelId: string): boolean {
  */
 export function getPiModelsForAuthProvider(piAuthProvider: string): ModelDefinition[] {
   try {
-    const models = getModels(piAuthProvider as KnownProvider);
+    const models = getModels(piAuthProvider as PiCatalogProvider);
     if (models.length > 0) {
       return models
         .filter(m => !isExcludedPiModel(m.id))
@@ -122,7 +124,7 @@ export function getAllPiModels(): ModelDefinition[] {
   const allModels: ModelDefinition[] = [];
   for (const provider of getProviders()) {
     try {
-      const models = getModels(provider);
+      const models = getModels(provider as PiCatalogProvider);
       allModels.push(...models
         .filter(m => !isExcludedPiModel(m.id))
         .map(piModelToDefinition)
@@ -215,7 +217,7 @@ export function getPiApiKeyProviders(): PiProviderInfo[] {
  */
 export function getPiProviderBaseUrl(provider: string): string | undefined {
   try {
-    const models = getModels(provider as Parameters<typeof getModels>[0]);
+    const models = getModels(provider as PiCatalogProvider);
     return models[0]?.baseUrl || undefined;
   } catch {
     return undefined;
