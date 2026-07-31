@@ -621,7 +621,12 @@ export class DesktopBridgeE2EDriver {
                   : this.#enrollmentToken
                     ? 'enrollment-staged'
                     : this.#ready ? 'ready' : 'created'
-    return { state, count: safe?.bindings.length ?? durableBindings.length }
+    return {
+      state,
+      count: safe?.bindings.length ?? durableBindings.length,
+      connectorState: safe?.connectorState ?? 'stopped',
+      ...(safe?.terminalReason ? { terminalReason: safe.terminalReason } : {}),
+    }
   }
 
   #armFault(args: Record<string, unknown>): Record<string, unknown> {

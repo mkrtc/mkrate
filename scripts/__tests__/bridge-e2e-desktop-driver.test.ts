@@ -258,7 +258,12 @@ describe('Desktop Bridge E2E closed controls', () => {
     })
     expect(ready).toEqual({ v: 1, id: 'ready', ok: true, result: { state: 'ready' } })
     const state = await driver.handle({ v: 1, id: 'state', op: 'driver.state', args: {} })
-    expect(state).toEqual({ v: 1, id: 'state', ok: true, result: { state: 'ready', count: 0 } })
+    expect(state).toEqual({
+      v: 1,
+      id: 'state',
+      ok: true,
+      result: { state: 'ready', count: 0, connectorState: 'stopped' },
+    })
     const authorityCounts = await driver.handle({ v: 1, id: 'counts', op: 'desktop.authority.counts', args: {} })
     expect(authorityCounts).toEqual({
       v: 1,
