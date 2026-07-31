@@ -456,7 +456,10 @@ export class DesktopBridgeE2EDriver {
     this.#tlsServerName = args.tlsServerName
     this.#caCertificate = Buffer.from(caCertificate)
     this.#ready = true
-    return { state: 'ready' }
+    return {
+      state: 'ready',
+      ...(typeof globalThis.Bun === 'undefined' ? { runtime: 'node' } : {}),
+    }
   }
 
   #stageEnrollment(args: Record<string, unknown>): Record<string, unknown> {

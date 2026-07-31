@@ -203,7 +203,7 @@ describe('Desktop Bridge E2E closed controls', () => {
     await driver.close()
   })
 
-  test('bootstrap serves only correlated NDJSON responses with --control-root', () => {
+  test('exact Bun bootstrap hands the unopened closed control stream to Node TLS', () => {
     const controlRoot = secureRoot()
     secureFile(join(controlRoot, 'control', 'ca.pem'), '-----BEGIN CERTIFICATE-----\ntest-only\n-----END CERTIFICATE-----\n')
     const requests = [
@@ -236,7 +236,7 @@ describe('Desktop Bridge E2E closed controls', () => {
     expect(run.stderr.toString()).toBe('')
     const responses = run.stdout.toString().trim().split('\n').map(line => JSON.parse(line))
     expect(responses).toEqual([
-      { v: 1, id: 'ready', ok: true, result: { state: 'ready' } },
+      { v: 1, id: 'ready', ok: true, result: { state: 'ready', runtime: 'node' } },
       { v: 1, id: 'stop', ok: true, result: { state: 'stopped' } },
     ])
   })
