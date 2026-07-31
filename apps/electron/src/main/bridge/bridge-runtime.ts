@@ -38,48 +38,81 @@ export interface ElectronBridgeRuntimeOptions {
  */
 export class ElectronBridgeRuntime {
   readonly #allowInsecureLoopback: boolean
-  readonly #runtime: DesktopBridgeRuntime
   readonly #credentialSaga: BridgeCredentialSaga
-  readonly #authorityStore: BridgeAuthorityStore
+  readonly #options: ElectronBridgeRuntimeOptions
+  #authorityStore: BridgeAuthorityStore | null = null
+  #runtime: DesktopBridgeRuntime | null = null
+  #startPromise: Promise<void> | null = null
 
   constructor(options: ElectronBridgeRuntimeOptions) {
     this.#allowInsecureLoopback = options.allowInsecureLoopback === true
     this.#credentialSaga = new BridgeCredentialSaga(options.credentials)
-    this.#authorityStore = new BridgeAuthorityStore()
-    const factory = options.runtimeFactory ?? (runtimeOptions => new DesktopBridgeRuntime(runtimeOptions))
-    this.#runtime = factory({
-      profile: getBridgeProfile(),
-      sessions: createBridgeSessionPort(options.sessionManager),
-      credentials: options.credentials,
-      authorityStore: this.#authorityStore,
-      commitEnrollment: (profile, instanceToken) => this.#credentialSaga.commitEnrollment(profile, instanceToken),
-      clientVersion: options.clientVersion,
+    this.#options = options
+  }
+
+  start(): Promise<void> {
+    if (!this.#startPromise) {
+      this.#startPromise = this.#startAfterRecovery().catch(error => {
+        this.#startPromise = null
+        throw error
+      })
+    }
+    return this.#startPromise
+  }
+
+  async #startAfterRecovery(): Promise<void> {
+    // Recovery may commit or remove the profile. Nothing profile-bound may be
+    // read or hydrated until the saga has reached a durable terminal state.
+    await this.#credentialSaga.ensureRecovered()
+    const profile = getBridgeProfile()
+    const authorityStore = new BridgeAuthorityStore()
+    const factory = this.#options.runtimeFactory ?? (runtimeOptions => new DesktopBridgeRuntime(runtimeOptions))
+    const runtime = factory({
+      profile,
+      sessions: createBridgeSessionPort(this.#options.sessionManager),
+      credentials: this.#options.credentials,
+      authorityStore,
+      commitEnrollment: (nextProfile, instanceToken) => this.#credentialSaga.commitEnrollment(nextProfile, instanceToken),
+      clientVersion: this.#options.clientVersion,
       allowInsecureLoopback: this.#allowInsecureLoopback,
     })
+    this.#authorityStore = authorityStore
+    this.#runtime = runtime
+    runtime.start()
   }
 
-  async start(): Promise<void> {
-    await this.#credentialSaga.ensureRecovered()
-    this.#runtime.start()
+  async stop(): Promise<void> {
+    if (this.#startPromise) {
+      try { await this.#startPromise } catch { return }
+    }
+    await this.#runtime?.stop()
   }
 
-  stop(): Promise<void> {
-    return this.#runtime.stop()
+  #requireRuntime(): DesktopBridgeRuntime {
+    if (!this.#runtime) throw new Error('Bridge runtime has not started')
+    return this.#runtime
+  }
+
+  #requireAuthorityStore(): BridgeAuthorityStore {
+    if (!this.#authorityStore) throw new Error('Bridge runtime has not started')
+    return this.#authorityStore
   }
 
   composeSessionEventSink(baseSink: Parameters<DesktopBridgeRuntime['composeSessionEventSink']>[0]) {
-    return this.#runtime.composeSessionEventSink(baseSink)
+    return this.#requireRuntime().composeSessionEventSink(baseSink)
   }
 
   async updateProfile(request: BridgeProfileUpdateRequest | null): Promise<DesktopBridgeSafeState> {
+    const runtime = this.#requireRuntime()
+    const authorityStore = this.#requireAuthorityStore()
     if (request === null) {
       const existing = getBridgeProfile()
-      if (!existing) return this.#runtime.getSafeState()
-      await this.#runtime.prepareProfileClear()
+      if (!existing) return runtime.getSafeState()
+      await runtime.prepareProfileClear()
       await this.#credentialSaga.clearProfile(existing)
-      this.#authorityStore.clearProfile(existing.profileId)
-      await this.#runtime.updateProfile(null)
-      return this.#runtime.getSafeState()
+      authorityStore.clearProfile(existing.profileId)
+      await runtime.updateProfile(null)
+      return runtime.getSafeState()
     }
 
     if (request.enrollmentToken !== undefined && !isValidBridgeEnrollmentToken(request.enrollmentToken)) {
@@ -104,8 +137,8 @@ export class ElectronBridgeRuntime {
       // before replacing config. If the new config write fails, the old profile
       // and encrypted credential remain locally recoverable but are already
       // proven revoked remotely; no destructive rollback is required.
-      await this.#runtime.prepareProfileClear()
-      this.#authorityStore.clearProfile(existing.profileId)
+      await runtime.prepareProfileClear()
+      authorityStore.clearProfile(existing.profileId)
     }
     const profile = setBridgeProfile({
       profileId: preview.profileId,
@@ -121,53 +154,58 @@ export class ElectronBridgeRuntime {
       // newly committed replacement profile.
       await this.#credentialSaga.clearProfile(existing)
     }
-    await this.#runtime.updateProfile(profile, request.enrollmentToken)
-    return this.#runtime.getSafeState()
+    await runtime.updateProfile(profile, request.enrollmentToken)
+    return runtime.getSafeState()
   }
 
   getSafeState(ownerId?: string): DesktopBridgeSafeState {
-    return this.#runtime.getSafeState(ownerId)
+    return this.#requireRuntime().getSafeState(ownerId)
   }
 
   openPairing(ownerId: string, allowManualCode = true): DesktopBridgeSafeState {
-    this.#runtime.openPairing(ownerId, { allowManualCode })
-    return this.#runtime.getSafeState(ownerId)
+    const runtime = this.#requireRuntime()
+    runtime.openPairing(ownerId, { allowManualCode })
+    return runtime.getSafeState(ownerId)
   }
 
   closePairing(ownerId: string): DesktopBridgeSafeState {
-    this.#runtime.closePairing(ownerId)
-    return this.#runtime.getSafeState(ownerId)
+    const runtime = this.#requireRuntime()
+    runtime.closePairing(ownerId)
+    return runtime.getSafeState(ownerId)
   }
 
   ownerHidden(ownerId: string): void {
-    this.#runtime.hidePairingOwner(ownerId)
+    this.#requireRuntime().hidePairingOwner(ownerId)
   }
 
   ownerMinimized(ownerId: string): void {
-    this.#runtime.minimizePairingOwner(ownerId)
+    this.#requireRuntime().minimizePairingOwner(ownerId)
   }
 
   ownerDestroyed(ownerId: string): void {
-    this.#runtime.destroyPairingOwner(ownerId)
+    this.#requireRuntime().destroyPairingOwner(ownerId)
   }
 
   async approvePairing(ownerId: string, grantedCapabilities: readonly DesktopBridgeCommandCapability[]): Promise<DesktopBridgeSafeState> {
-    await this.#runtime.approvePairing(ownerId, grantedCapabilities)
-    return this.#runtime.getSafeState(ownerId)
+    const runtime = this.#requireRuntime()
+    await runtime.approvePairing(ownerId, grantedCapabilities)
+    return runtime.getSafeState(ownerId)
   }
 
   async rejectPairing(ownerId: string, reason: PairingRejectReason): Promise<DesktopBridgeSafeState> {
-    await this.#runtime.rejectPairing(ownerId, reason)
-    return this.#runtime.getSafeState(ownerId)
+    const runtime = this.#requireRuntime()
+    await runtime.rejectPairing(ownerId, reason)
+    return runtime.getSafeState(ownerId)
   }
 
   listBindings(): readonly DesktopBridgeBindingMetadata[] {
-    return this.#runtime.listBindings()
+    return this.#requireRuntime().listBindings()
   }
 
   async revokeBinding(bindingId: string): Promise<DesktopBridgeSafeState> {
-    await this.#runtime.revokeBinding(bindingId)
-    return this.#runtime.getSafeState()
+    const runtime = this.#requireRuntime()
+    await runtime.revokeBinding(bindingId)
+    return runtime.getSafeState()
   }
 }
 

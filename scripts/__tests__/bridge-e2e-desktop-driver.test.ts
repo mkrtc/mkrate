@@ -1,16 +1,19 @@
+import { createHash } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 const roots: string[] = []
 let root = ''
@@ -29,6 +32,32 @@ function secureRoot(): string {
 function secureFile(path: string, content: string): void {
   writeFileSync(path, content, { mode: 0o600 })
   chmodSync(path, 0o600)
+}
+
+function nodeRuntimeManifest(): { v: 1; nodePath: string; nodeSha256: string } {
+  const discovered = Bun.which('node')
+  if (!discovered) throw new Error('Node executable unavailable')
+  const nodePath = realpathSync(discovered)
+  return { v: 1, nodePath, nodeSha256: createHash('sha256').update(readFileSync(nodePath)).digest('hex') }
+}
+
+function writeNodeRuntimeManifest(controlRoot: string): void {
+  secureFile(join(controlRoot, 'control', 'desktop-node-runtime.json'), `${JSON.stringify(nodeRuntimeManifest())}\n`)
+}
+
+function runDesktopLauncher(controlRoot: string, stdin = '', env: Record<string, string | undefined> = process.env) {
+  return Bun.spawnSync([
+    process.execPath,
+    'run',
+    join(import.meta.dir, '..', 'bridge-e2e-desktop-driver.ts'),
+    '--control-root',
+    controlRoot,
+  ], {
+    stdin: Buffer.from(stdin),
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...env, CRAFT_DEBUG: 'false' },
+  })
 }
 
 beforeAll(async () => {
@@ -203,9 +232,37 @@ describe('Desktop Bridge E2E closed controls', () => {
     await driver.close()
   })
 
-  test('exact Bun bootstrap hands the unopened closed control stream to Node TLS', () => {
+  test('rejects absent, malformed, mismatched, symlinked, insecure, and non-file Node manifests without stdout', () => {
+    const cases: Array<(controlRoot: string) => void> = [
+      () => {},
+      controlRoot => secureFile(join(controlRoot, 'control', 'desktop-node-runtime.json'), '{"v":1,"unknown":true}\n'),
+      controlRoot => secureFile(join(controlRoot, 'control', 'desktop-node-runtime.json'), `${JSON.stringify({ ...nodeRuntimeManifest(), nodeSha256: '0'.repeat(64) })}\n`),
+      controlRoot => secureFile(join(controlRoot, 'control', 'desktop-node-runtime.json'), `${JSON.stringify({ ...nodeRuntimeManifest(), nodePath: join(controlRoot, 'missing-node') })}\n`),
+      controlRoot => {
+        const target = join(controlRoot, 'control', 'node-target.json')
+        secureFile(target, `${JSON.stringify(nodeRuntimeManifest())}\n`)
+        symlinkSync(target, join(controlRoot, 'control', 'desktop-node-runtime.json'))
+      },
+      controlRoot => {
+        writeNodeRuntimeManifest(controlRoot)
+        chmodSync(join(controlRoot, 'control', 'desktop-node-runtime.json'), 0o644)
+      },
+      controlRoot => mkdirSync(join(controlRoot, 'control', 'desktop-node-runtime.json'), { mode: 0o700 }),
+    ]
+    for (const arrange of cases) {
+      const controlRoot = secureRoot()
+      arrange(controlRoot)
+      const run = runDesktopLauncher(controlRoot)
+      expect(run.exitCode).not.toBe(0)
+      expect(run.stdout.toString()).toBe('')
+      expect(run.stderr.toString()).toBe('{"event":"launcher-rejected","code":"INVALID_NODE_RUNTIME"}\n')
+    }
+  })
+
+  test('exact Bun bootstrap hands the unopened closed control stream to the manifest-bound Node TLS runtime', () => {
     const controlRoot = secureRoot()
     secureFile(join(controlRoot, 'control', 'ca.pem'), '-----BEGIN CERTIFICATE-----\ntest-only\n-----END CERTIFICATE-----\n')
+    writeNodeRuntimeManifest(controlRoot)
     const requests = [
       {
         v: 1,
@@ -220,20 +277,24 @@ describe('Desktop Bridge E2E closed controls', () => {
       },
       { v: 1, id: 'stop', op: 'driver.stop', args: {} },
     ]
-    const run = Bun.spawnSync([
-      process.execPath,
-      'run',
-      join(import.meta.dir, '..', 'bridge-e2e-desktop-driver.ts'),
-      '--control-root',
+    const shadowDirectory = join(controlRoot, 'state', 'shadow-bin')
+    mkdirSync(shadowDirectory, { mode: 0o700 })
+    const shadowMarker = join(controlRoot, 'state', 'shadow-node-ran')
+    const shadowNode = join(shadowDirectory, process.platform === 'win32' ? 'node.cmd' : 'node')
+    if (process.platform === 'win32') {
+      secureFile(shadowNode, `@echo shadow>${shadowMarker}\r\n@exit /b 99\r\n`)
+    } else {
+      secureFile(shadowNode, `#!/bin/sh\nprintf shadow > '${shadowMarker}'\nexit 99\n`)
+      chmodSync(shadowNode, 0o700)
+    }
+    const run = runDesktopLauncher(
       controlRoot,
-    ], {
-      stdin: Buffer.from(`${requests.map(request => JSON.stringify(request)).join('\n')}\n`),
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { ...process.env, CRAFT_DEBUG: 'false' },
-    })
+      `${requests.map(request => JSON.stringify(request)).join('\n')}\n`,
+      { ...process.env, PATH: `${shadowDirectory}${delimiter}${process.env.PATH ?? ''}` },
+    )
     expect(run.exitCode).toBe(0)
     expect(run.stderr.toString()).toBe('')
+    expect(existsSync(shadowMarker)).toBe(false)
     const responses = run.stdout.toString().trim().split('\n').map(line => JSON.parse(line))
     expect(responses).toEqual([
       { v: 1, id: 'ready', ok: true, result: { state: 'ready', runtime: 'node' } },
