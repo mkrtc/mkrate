@@ -47,7 +47,7 @@ const PROTOCOL_COORDINATES = Object.freeze({
 })
 
 const OWNER_ID = 'bridge-e2e-desktop-driver'
-const AUTH_TIMEOUT_MS = 30_000
+export const DESKTOP_BRIDGE_E2E_CLIENT_VERSION = '1.0.0-wave-d-e2e'
 const PAIRING_TIMEOUT_MS = 30_000
 const MAX_CONTROL_FILE_BYTES = 16 * 1024 * 1024
 const PATH_AREAS = ['secrets', 'state', 'control'] as const
@@ -62,6 +62,7 @@ const OPS = [
   'desktop.pairing.approve',
   'desktop.fixture.advance',
   'desktop.binding.revoke',
+  'desktop.authority.counts',
   'transport.disconnect',
   'transport.reconnect',
   'driver.state',
@@ -430,6 +431,7 @@ export class DesktopBridgeE2EDriver {
       case 'desktop.pairing.approve': return this.#approvePairing(args)
       case 'desktop.fixture.advance': return this.#advanceFixture(args)
       case 'desktop.binding.revoke': return this.#revokeBinding(args)
+      case 'desktop.authority.counts': return this.#authorityCounts(args)
       case 'transport.disconnect': return this.#disconnect(args)
       case 'transport.reconnect': return this.#reconnect(args)
       case 'driver.state': return this.#driverState(args)
@@ -563,6 +565,19 @@ export class DesktopBridgeE2EDriver {
     return { revoked: true }
   }
 
+  #authorityCounts(args: Record<string, unknown>): Record<string, unknown> {
+    strictKeys(args, [])
+    this.#requireReady()
+    this.#refreshAuthorityCounts()
+    return {
+      sendExecutionCount: this.#counts.sendExecutionCount,
+      cancelExecutionCount: this.#counts.cancelExecutionCount,
+      idempotencyConflictCount: this.#counts.idempotencyConflictCount,
+      droppedResultCount: this.#counts.droppedResultCount,
+      resyncRequiredResultCount: this.#counts.resyncRequiredResultCount,
+    }
+  }
+
   async #disconnect(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     strictKeys(args, [])
     if (!this.#runtime) throw new DriverError('INVALID_STATE')
@@ -635,7 +650,7 @@ export class DesktopBridgeE2EDriver {
       enrollmentToken: this.#enrollmentToken,
       authorityStore: this.#authorityStore,
       commitEnrollment: (profile, instanceToken) => this.#saga.commitEnrollment(profile, instanceToken),
-      clientVersion: 'wave-d-e2e',
+      clientVersion: DESKTOP_BRIDGE_E2E_CLIENT_VERSION,
       connectorFactory: options => new BridgeConnectorService({
         ...options,
         webSocketFactory: (url, transportOptions) => this.#createTlsSocket(url, transportOptions),

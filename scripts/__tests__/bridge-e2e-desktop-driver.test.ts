@@ -119,6 +119,50 @@ describe('DurableDesktopSessionAuthority', () => {
 })
 
 describe('Desktop Bridge E2E closed controls', () => {
+  test('emits the strict SemVer client identity through the real connector and canonical serializer', async () => {
+    const [{ BridgeConnectorService }, protocol] = await Promise.all([
+      import('@craft-agent/server-core/bridge'),
+      import('@mkrate/bridge-protocol'),
+    ])
+    const sent: Array<Parameters<typeof protocol.serializeBridgeMessage>[0]> = []
+    const connector = new BridgeConnectorService({
+      profile: {
+        profileId: '123e4567-e89b-42d3-a456-426614174000',
+        url: 'wss://bridge.localhost:4443',
+        displayName: 'Wave D Desktop',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      credentials: {
+        async getBridgeInstanceCredential() { return null },
+        async setBridgeInstanceCredential() {},
+        async deleteBridgeInstanceToken() { return false },
+      },
+      clientVersion: driverModule.DESKTOP_BRIDGE_E2E_CLIENT_VERSION,
+      transportFactory: callbacks => ({
+        connected: true,
+        start: () => callbacks.onOpen(),
+        stop: () => {},
+        retry: () => {},
+        send: async message => { sent.push(message) },
+      }),
+    })
+    connector.start()
+    await Promise.resolve()
+    const negotiation = sent[0]
+    expect(negotiation).toMatchObject({
+      type: 'deployment.negotiate',
+      clientVersion: '1.0.0-wave-d-e2e',
+    })
+    const serialized = protocol.serializeBridgeMessage(negotiation!)
+    expect(protocol.parseDesktopClientMessage(serialized)).toMatchObject({
+      type: 'deployment.negotiate',
+      clientVersion: '1.0.0-wave-d-e2e',
+    })
+    connector.stop()
+  })
+
   test('strictly rejects unknown fields, duplicate IDs, bad protocol coordinates, and symlink refs', async () => {
     const controlRoot = secureRoot()
     const caPath = join(controlRoot, 'control', 'ca.pem')
@@ -215,6 +259,19 @@ describe('Desktop Bridge E2E closed controls', () => {
     expect(ready).toEqual({ v: 1, id: 'ready', ok: true, result: { state: 'ready' } })
     const state = await driver.handle({ v: 1, id: 'state', op: 'driver.state', args: {} })
     expect(state).toEqual({ v: 1, id: 'state', ok: true, result: { state: 'ready', count: 0 } })
+    const authorityCounts = await driver.handle({ v: 1, id: 'counts', op: 'desktop.authority.counts', args: {} })
+    expect(authorityCounts).toEqual({
+      v: 1,
+      id: 'counts',
+      ok: true,
+      result: {
+        sendExecutionCount: 0,
+        cancelExecutionCount: 0,
+        idempotencyConflictCount: 0,
+        droppedResultCount: 0,
+        resyncRequiredResultCount: 0,
+      },
+    })
     const countsPath = join(controlRoot, 'state', 'desktop-driver-counts.json')
     expect(statSync(countsPath).mode & 0o777).toBe(0o600)
     expect(JSON.parse(readFileSync(countsPath, 'utf8'))).toMatchObject({
