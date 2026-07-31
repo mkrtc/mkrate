@@ -264,7 +264,13 @@ export class DesktopBridgeRuntime {
       presence: 'online',
     })
     try {
-      this.#authorityStore?.putBinding(binding)
+      this.#authorityStore?.putBinding({
+        bindingId: binding.bindingId,
+        deviceId: binding.deviceId,
+        deviceName: binding.deviceName,
+        grantedCapabilities: binding.grantedCapabilities,
+        approvedAtMs: binding.approvedAtMs,
+      })
     } catch (error) {
       await session.revokeApprovedBinding().catch(() => undefined)
       throw error

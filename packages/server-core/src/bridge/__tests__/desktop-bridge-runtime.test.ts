@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   BRIDGE_PROTOCOL_VERSION,
   COMMAND_CAPABILITIES,
@@ -14,6 +17,7 @@ import {
   type BridgeCredentialAccess,
   type BridgeTransportPort,
 } from '../bridge-connector-service.ts'
+import { BridgeAuthorityStore } from '../bridge-authority-store.ts'
 import { DesktopBridgeRuntime } from '../desktop-bridge-runtime.ts'
 import { FakeBridgeSessionPort } from '../bridge-test-helpers.ts'
 
@@ -91,7 +95,10 @@ interface Harness {
   sessions: FakeBridgeSessionPort
 }
 
-function createHarness(onStateChange?: (state: ReturnType<DesktopBridgeRuntime['getSafeState']>) => void): Harness {
+function createHarness(
+  onStateChange?: (state: ReturnType<DesktopBridgeRuntime['getSafeState']>) => void,
+  authorityStore?: BridgeAuthorityStore,
+): Harness {
   let transport!: FakeTransport
   let random = 20
   const sessions = new FakeBridgeSessionPort()
@@ -100,6 +107,7 @@ function createHarness(onStateChange?: (state: ReturnType<DesktopBridgeRuntime['
     sessions,
     credentials: new FakeCredentials(),
     now: () => 10_000,
+    authorityStore,
     pairingTimers: {
       now: () => 10_000,
       setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
@@ -250,6 +258,26 @@ function emitCommand(
 }
 
 describe('DesktopBridgeRuntime headless data plane', () => {
+  test('persists only the durable binding projection after remote approval commits', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-bridge-pairing-authority-'))
+    const store = new BridgeAuthorityStore(root)
+    const h = createHarness(undefined, store)
+    try {
+      await authenticate(h)
+      await pair(h)
+      expect(store.listBindings()).toEqual([{
+        bindingId: BINDING_ID,
+        deviceId: DEVICE_ID,
+        deviceName: 'Phone',
+        grantedCapabilities: [...COMMAND_CAPABILITIES],
+        approvedAtMs: 3,
+      }])
+    } finally {
+      await h.runtime.stop()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('notifies immediately when a visible-owner pairing request becomes pending without exposing it globally', async () => {
     const states: Array<ReturnType<DesktopBridgeRuntime['getSafeState']>> = []
     const h = createHarness(state => states.push(state))
