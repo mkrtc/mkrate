@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "Sitzungen konnten nicht geladen werden",
   "errors.failedToLoadSessionsDesc": "Mkrate konnte eine Verbindung herstellen, aber das Laden der Sitzungsliste ist fehlgeschlagen. Dies wird nicht als leerer Workspace behandelt, um echte Fehler oder Datenprobleme nicht zu verbergen.",
   "errors.pleaseReload": "Bitte lade die Seite neu. Der Fehler wurde gemeldet.",
+  "errors.profileLock.message": "Das gemeinsame Craft/Mkrate-Profil wird bereits von einem anderen Prozess verwendet{{owner}}. Schließen Sie die bestehende Anwendung und versuchen Sie es erneut. Um eine separate Instanz auszuführen, wählen Sie mit CRAFT_CONFIG_DIR ausdrücklich ein anderes Profil. Mkrate hat kein Profil erstellt oder kopiert.",
+  "errors.profileLock.title": "Dieses Profil wird bereits verwendet",
   "errors.retryLoadingSessions": "Sitzungen erneut laden",
   "errors.sessionNotFound": "Sitzung nicht gefunden",
   "fileViewer.clickToView": "Klicke auf einen Dateipfad im Chat, um ihn hier anzuzeigen",

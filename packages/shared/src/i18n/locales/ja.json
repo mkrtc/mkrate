@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "セッション一覧の読み込みに失敗しました",
   "errors.failedToLoadSessionsDesc": "Mkrateは接続できましたが、セッション一覧の読み込みに失敗しました。実際のバグやデータの問題を隠さないよう、空のWorkspaceとして扱っていません。",
   "errors.pleaseReload": "ページを再読み込みしてください。エラーは報告されました。",
+  "errors.profileLock.message": "共有の Craft/Mkrate プロファイルは別のプロセスが使用しています{{owner}}。既存のアプリケーションを終了して、もう一度お試しください。別のインスタンスを実行するには、CRAFT_CONFIG_DIR で別のプロファイルを明示的に選択してください。Mkrate はプロファイルの作成やコピーを行っていません。",
+  "errors.profileLock.title": "このプロファイルは使用中です",
   "errors.retryLoadingSessions": "セッション一覧を再読み込み",
   "errors.sessionNotFound": "セッションが見つかりません",
   "fileViewer.clickToView": "チャット内のファイルパスをクリックすると、ここに表示されます",

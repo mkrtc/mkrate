@@ -7,6 +7,7 @@ import {
   type DesktopServerMessage,
 } from '@mkrate/bridge-protocol'
 import type { BridgeProfile } from '@craft-agent/shared/config'
+import type { BridgeAuthorityStore } from './bridge-authority-store.ts'
 import { RPC_CHANNELS, type SessionEvent } from '@craft-agent/shared/protocol'
 import type { EventSink } from '../transport/types.ts'
 import {
@@ -66,6 +67,8 @@ export interface DesktopBridgeRuntimeOptions {
   sessions: BridgeSessionPort
   credentials: BridgeCredentialAccess
   enrollmentToken?: string
+  authorityStore?: BridgeAuthorityStore
+  commitEnrollment?: BridgeConnectorServiceOptions['commitEnrollment']
   clientVersion?: string
   allowInsecureLoopback?: boolean
   logger?: BridgeLogger
@@ -93,6 +96,8 @@ type CommandRequestMessage = Extract<DesktopServerMessage, { type: 'command.requ
 export class DesktopBridgeRuntime {
   readonly #sessions: BridgeSessionPort
   readonly #credentials: BridgeCredentialAccess
+  readonly #authorityStore?: BridgeAuthorityStore
+  readonly #commitEnrollment?: BridgeConnectorServiceOptions['commitEnrollment']
   readonly #clientVersion: string
   readonly #allowInsecureLoopback: boolean
   readonly #logger: BridgeLogger
@@ -118,6 +123,8 @@ export class DesktopBridgeRuntime {
     this.#profile = options.profile ? { ...options.profile } : null
     this.#sessions = options.sessions
     this.#credentials = options.credentials
+    this.#authorityStore = options.authorityStore
+    this.#commitEnrollment = options.commitEnrollment
     this.#enrollmentToken = options.enrollmentToken
     this.#clientVersion = options.clientVersion ?? '0.0.1'
     this.#allowInsecureLoopback = options.allowInsecureLoopback === true
@@ -126,6 +133,21 @@ export class DesktopBridgeRuntime {
     this.#pairingTimers = options.pairingTimers
     this.#connectorFactory = options.connectorFactory ?? (connectorOptions => new BridgeConnectorService(connectorOptions))
     this.#onStateChange = options.onStateChange
+
+    // A Desktop process restart is itself a possible timeline gap. Restore
+    // durable binding authorization, but require a replacement snapshot before
+    // any replay/subscription can report continuity.
+    if (this.#profile?.deploymentId && this.#profile.instanceId && this.#authorityStore) {
+      this.#authorityStore.activate({
+        profileId: this.#profile.profileId,
+        deploymentId: this.#profile.deploymentId,
+        instanceId: this.#profile.instanceId,
+      })
+      for (const durable of this.#authorityStore.listBindings()) {
+        this.#bindings.set(durable.bindingId, freezeBinding({ ...durable, presence: 'offline' }))
+        this.#authorityStore.markResyncRequired(durable.bindingId)
+      }
+    }
   }
 
   get safeState(): DesktopBridgeSafeState {
@@ -201,6 +223,24 @@ export class DesktopBridgeRuntime {
     this.#emitState()
   }
 
+  hidePairingOwner(ownerId: string): void {
+    if (this.#pairingOwnerId !== ownerId) return
+    this.#pairingLease?.hide(ownerId)
+    this.#pairingOwnerId = null
+    this.#emitState()
+  }
+
+  minimizePairingOwner(ownerId: string): void {
+    if (this.#pairingOwnerId !== ownerId) return
+    this.#pairingLease?.minimize(ownerId)
+    this.#pairingOwnerId = null
+    this.#emitState()
+  }
+
+  destroyPairingOwner(ownerId: string): void {
+    this.closePairing(ownerId)
+  }
+
   async approvePairing(ownerId: string, grantedCapabilities: readonly CommandCapability[]): Promise<DesktopBridgeBindingMetadata> {
     this.#requirePairingOwner(ownerId)
     validateGrantedCapabilities(grantedCapabilities)
@@ -223,6 +263,12 @@ export class DesktopBridgeRuntime {
       approvedAtMs: ack.committedAtMs,
       presence: 'online',
     })
+    try {
+      this.#authorityStore?.putBinding(binding)
+    } catch (error) {
+      await session.revokeApprovedBinding().catch(() => undefined)
+      throw error
+    }
     this.#bindings.set(binding.bindingId, binding)
     this.closePairing(ownerId)
     this.#emitState()
@@ -249,6 +295,41 @@ export class DesktopBridgeRuntime {
     await connector.revokeBinding(bindingId)
     await this.#clearBinding(bindingId, 'revoked')
     this.#emitState()
+  }
+
+  /** Revoke the remote Desktop instance (and all its bindings) before local clear. */
+  async prepareProfileClear(): Promise<void> {
+    const enrolled = !!this.#profile?.deploymentId && !!this.#profile?.instanceId
+    const remotelyGone = this.#connector?.terminalReason === 'token-revoked'
+      || this.#connector?.terminalReason === 'instance-not-found'
+    if (enrolled && !this.#connector?.isAuthenticated && !remotelyGone) {
+      throw new Error('Bridge must be authenticated before clearing an enrolled profile')
+    }
+
+    this.#admitting = false
+    const owner = this.#pairingOwnerId
+    this.#pairingOwnerId = null
+    if (owner) this.#pairingLease?.closeOwner(owner)
+    await this.#closeAllSubscriptions('revoked')
+    try {
+      if (enrolled && !remotelyGone) await this.#connector!.revokeDesktop()
+      // token-revoked / instance-not-found is authoritative proof that a prior
+      // remote revoke committed even if Desktop crashed before local cleanup.
+      for (const bindingId of [...this.#bindings.keys()]) await this.#clearBinding(bindingId, 'revoked')
+    } catch (error) {
+      let gapDurable = true
+      for (const bindingId of this.#bindings.keys()) {
+        try {
+          if (this.#facade) this.#facade.markBindingResyncRequired(bindingId)
+          else this.#authorityStore?.markResyncRequired(bindingId)
+        } catch {
+          gapDurable = false
+          this.#logger.log('error', 'connector.authority-write-failed', { operation: 'resync-marker' })
+        }
+      }
+      this.#admitting = this.#started && gapDurable
+      throw error
+    }
   }
 
   getSafeState(pairingOwnerId?: string): DesktopBridgeSafeState {
@@ -301,6 +382,7 @@ export class DesktopBridgeRuntime {
       profile: this.#profile,
       credentials: this.#credentials,
       enrollmentToken: this.#enrollmentToken,
+      commitEnrollment: this.#commitEnrollment,
       clientVersion: this.#clientVersion,
       allowInsecureLoopback: this.#allowInsecureLoopback,
       logger: this.#logger,
@@ -329,6 +411,16 @@ export class DesktopBridgeRuntime {
         const current = connector.profile
         if (current.deploymentId && current.instanceId) {
           this.#profile = { ...current }
+          this.#authorityStore?.activate({
+            profileId: current.profileId,
+            deploymentId: current.deploymentId,
+            instanceId: current.instanceId,
+          })
+          if (this.#authorityStore && this.#bindings.size === 0) {
+            for (const durable of this.#authorityStore.listBindings()) {
+              this.#bindings.set(durable.bindingId, freezeBinding({ ...durable, presence: 'offline' }))
+            }
+          }
           this.#facade = new MobileBridgeFacade({
             identity: {
               profileId: current.profileId,
@@ -337,9 +429,21 @@ export class DesktopBridgeRuntime {
             },
             sessions: this.#sessions,
             now: this.#now,
+            authorityStore: this.#authorityStore,
           })
         }
       } else {
+        let durableGapFailure = false
+        for (const bindingId of this.#bindings.keys()) {
+          try {
+            if (this.#facade) this.#facade.markBindingResyncRequired(bindingId)
+            else this.#authorityStore?.markResyncRequired(bindingId)
+          } catch {
+            durableGapFailure = true
+            this.#logger.log('error', 'connector.authority-write-failed', { operation: 'resync-marker' })
+          }
+        }
+        if (durableGapFailure) this.#admitting = false
         this.#facade = null
         void this.#closeAllSubscriptions('desktop-offline')
       }
@@ -425,6 +529,13 @@ export class DesktopBridgeRuntime {
     if (message.state === 'revoked') {
       await this.#clearBinding(message.bindingId, 'revoked')
     } else if (message.state === 'offline' || message.state === 'replaced') {
+      try {
+        if (this.#facade) this.#facade.markBindingResyncRequired(message.bindingId)
+        else this.#authorityStore?.markResyncRequired(message.bindingId)
+      } catch {
+        this.#admitting = false
+        this.#logger.log('error', 'connector.authority-write-failed', { operation: 'resync-marker' })
+      }
       await this.#closeBindingSubscriptions(
         message.bindingId,
         message.state === 'offline' ? 'binding-offline' : 'replaced',
@@ -457,6 +568,7 @@ export class DesktopBridgeRuntime {
   async #clearBinding(bindingId: string, reason: SubscriptionCloseReason): Promise<void> {
     await this.#closeBindingSubscriptions(bindingId, reason)
     this.#bindings.delete(bindingId)
+    this.#authorityStore?.removeBinding(bindingId)
     this.#facade?.clearBinding(bindingId)
   }
 

@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "Failed to load sessions",
   "errors.failedToLoadSessionsDesc": "Mkrate could connect, but loading the session list failed. This is not being treated as an empty workspace to avoid hiding a real bug or data problem.",
   "errors.pleaseReload": "Please reload the page. The error has been reported.",
+  "errors.profileLock.message": "The shared Craft/Mkrate profile is already owned by another process{{owner}}. Close the existing application and try again. To run a separate instance, explicitly choose another profile with CRAFT_CONFIG_DIR. Mkrate did not create or copy a profile.",
+  "errors.profileLock.title": "This profile is already in use",
   "errors.retryLoadingSessions": "Retry loading sessions",
   "errors.sessionNotFound": "Session not found",
   "fileViewer.clickToView": "Click a file path in the chat to view it here",

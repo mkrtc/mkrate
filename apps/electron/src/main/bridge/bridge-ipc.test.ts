@@ -11,8 +11,12 @@ import { stopBridgeBeforeSessionCleanup, type ElectronBridgeRuntime } from './br
 class FakeIpcMain implements BridgeIpcMainLike {
   readonly handlers = new Map<string, (event: BridgeIpcEventLike, ...args: unknown[]) => unknown>()
   readonly removed: string[] = []
+  private registrations = 0
+  constructor(private readonly failAt = Number.POSITIVE_INFINITY) {}
 
   handle(channel: string, listener: (event: BridgeIpcEventLike, ...args: unknown[]) => unknown): void {
+    this.registrations++
+    if (this.registrations === this.failAt) throw new Error(`injected registration failure: ${channel}`)
     if (this.handlers.has(channel)) throw new Error(`duplicate handler: ${channel}`)
     this.handlers.set(channel, listener)
   }
@@ -82,8 +86,17 @@ describe('Trusted Bridge local Electron IPC', () => {
     })
 
     unregister()
+    unregister()
     expect(ipcMain.handlers.size).toBe(0)
     expect(ipcMain.removed.sort()).toEqual(Object.values(BRIDGE_IPC_CHANNELS).sort())
+  })
+
+  test('rolls back every prior handler when registration fails part-way', () => {
+    const ipcMain = new FakeIpcMain(4)
+    const { runtime } = fakeRuntime()
+    expect(() => registerBridgeIpc({ ipcMain, runtime, isOwnerVisible: () => true })).toThrow('injected registration failure')
+    expect(ipcMain.handlers.size).toBe(0)
+    expect(ipcMain.removed).toHaveLength(3)
   })
 
   test('awaits Bridge stop before SessionManager cleanup', async () => {

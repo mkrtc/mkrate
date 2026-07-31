@@ -13,11 +13,12 @@ import {
   type DesktopServerMessage,
   type TimelineEvent,
 } from '@mkrate/bridge-protocol';
+import type { BridgeProfile } from '@craft-agent/shared/config';
 import {
-  setBridgeProfile,
-  type BridgeProfile,
-} from '@craft-agent/shared/config';
-import type { CredentialManager } from '@craft-agent/shared/credentials';
+  bridgeCredentialMatches,
+  createBridgeCredentialEnvelope,
+  type BridgeCredentialEnvelope,
+} from '@craft-agent/shared/credentials';
 import { NULL_BRIDGE_LOGGER, type BridgeLogger } from './bridge-logging.ts';
 import {
   BridgeTransport,
@@ -42,6 +43,7 @@ export type BridgeTerminalReason =
   | 'configuration-invalid'
   | 'credential-missing'
   | 'credential-store-failed'
+  | 'credential-binding-invalid'
   | 'identity-persist-failed'
   | 'protocol-error'
   | 'deployment-mismatch'
@@ -57,6 +59,7 @@ export type PairingOpenedMessage = Extract<DesktopServerMessage, { type: 'pairin
 export type PairingRequestMessage = Extract<DesktopServerMessage, { type: 'pairing.request' }>;
 export type PairingApprovedMessage = Extract<DesktopServerMessage, { type: 'pairing.approved' }>;
 export type PairingRejectedMessage = Extract<DesktopServerMessage, { type: 'pairing.rejected' }>;
+export type DesktopRevokedMessage = Extract<DesktopServerMessage, { type: 'desktop.revoked' }>;
 export type BindingRevokedMessage = Extract<DesktopServerMessage, { type: 'binding.revoked' }>;
 export type PresenceChangedMessage = Extract<DesktopServerMessage, { type: 'presence.changed' }>;
 export type PairingCloseReason = Extract<DesktopClientMessage, { type: 'pairing.close' }>['reason'];
@@ -68,8 +71,8 @@ export function isValidBridgeEnrollmentToken(value: unknown): value is string {
 }
 
 export interface BridgeCredentialAccess {
-  getBridgeInstanceToken(profileId: string): Promise<string | null>;
-  setBridgeInstanceToken(profileId: string, token: string): Promise<void>;
+  getBridgeInstanceCredential(profileId: string): Promise<BridgeCredentialEnvelope | null>;
+  setBridgeInstanceCredential(envelope: BridgeCredentialEnvelope): Promise<void>;
   deleteBridgeInstanceToken(profileId: string): Promise<boolean>;
 }
 
@@ -102,8 +105,7 @@ const DEFAULT_TIMERS: BridgeConnectorTimers = {
 
 export interface BridgeConnectorServiceOptions {
   profile: BridgeProfile;
-  credentials: Pick<CredentialManager,
-    'getBridgeInstanceToken' | 'setBridgeInstanceToken' | 'deleteBridgeInstanceToken'> | BridgeCredentialAccess;
+  credentials: BridgeCredentialAccess;
   enrollmentToken?: string;
   clientVersion?: string;
   allowInsecureLoopback?: boolean;
@@ -111,7 +113,8 @@ export interface BridgeConnectorServiceOptions {
   randomBytes?: (length: number) => Uint8Array;
   timers?: BridgeConnectorTimers;
   requestTimeoutMs?: number;
-  persistProfile?: (profile: BridgeProfile) => Promise<BridgeProfile> | BridgeProfile;
+  /** Crash-recoverable profile + encrypted credential commit (required for enrollment). */
+  commitEnrollment?: (profile: BridgeProfile, instanceToken: string) => Promise<BridgeProfile>;
   transportFactory?: (callbacks: BridgeTransportCallbacks) => BridgeTransportPort;
   webSocketFactory?: BridgeTransportOptions['webSocketFactory'];
   onStateChange?: (state: BridgeConnectorState, terminalReason: BridgeTerminalReason | null) => void;
@@ -143,17 +146,6 @@ class BridgeRequestError extends Error {
   }
 }
 
-function defaultPersistProfile(profile: BridgeProfile, allowInsecureLoopback: boolean): BridgeProfile {
-  return setBridgeProfile({
-    profileId: profile.profileId,
-    url: profile.url,
-    displayName: profile.displayName,
-    enabled: profile.enabled,
-    deploymentId: profile.deploymentId,
-    instanceId: profile.instanceId,
-  }, { allowInsecureLoopback });
-}
-
 function isTerminalAuthCode(code: string): BridgeTerminalReason | null {
   switch (code) {
     case BRIDGE_ERROR_CODES.tokenInvalid: return 'token-invalid';
@@ -178,7 +170,7 @@ export class BridgeConnectorService {
   readonly #randomBytes: (length: number) => Uint8Array;
   readonly #timers: BridgeConnectorTimers;
   readonly #requestTimeoutMs: number;
-  readonly #persistProfileFn: (profile: BridgeProfile) => Promise<BridgeProfile> | BridgeProfile;
+  readonly #commitEnrollment?: BridgeConnectorServiceOptions['commitEnrollment'];
   readonly #transport: BridgeTransportPort;
   readonly #onStateChange?: BridgeConnectorServiceOptions['onStateChange'];
   readonly #onCommandRequest?: BridgeConnectorServiceOptions['onCommandRequest'];
@@ -210,8 +202,7 @@ export class BridgeConnectorService {
     this.#randomBytes = options.randomBytes ?? ((length) => nodeRandomBytes(length));
     this.#timers = options.timers ?? DEFAULT_TIMERS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? SECURITY_LIMITS.routeTimeoutMs;
-    this.#persistProfileFn = options.persistProfile
-      ?? ((profile) => defaultPersistProfile(profile, this.#allowInsecureLoopback));
+    this.#commitEnrollment = options.commitEnrollment;
     this.#onStateChange = options.onStateChange;
     this.#onCommandRequest = options.onCommandRequest;
     this.#onPresenceChanged = options.onPresenceChanged;
@@ -304,7 +295,9 @@ export class BridgeConnectorService {
     if (!this.#authenticated || (this.#state !== 'authenticated' && this.#state !== 'credential-delivery-unknown')) {
       throw new Error('Bridge Desktop is not authenticated for token rotation');
     }
-    const currentToken = await this.#credentials.getBridgeInstanceToken(this.#profile.profileId);
+    const currentCredential = await this.#readBoundCredential();
+    if (this.#terminalReason) return;
+    const currentToken = currentCredential?.instanceToken ?? null;
     if (!currentToken || !this.#profile.deploymentId || !this.#profile.instanceId) {
       this.#terminal('credential-missing');
       return;
@@ -356,7 +349,13 @@ export class BridgeConnectorService {
       attempted: false,
     };
     try {
-      await this.#credentials.setBridgeInstanceToken(this.#profile.profileId, response.instanceToken);
+      await this.#credentials.setBridgeInstanceCredential(createBridgeCredentialEnvelope({
+        origin: this.#profile.url,
+        profileId: this.#profile.profileId,
+        deploymentId: this.#profile.deploymentId,
+        instanceId: this.#profile.instanceId,
+        instanceToken: response.instanceToken,
+      }));
     } catch {
       this.#logger.log('error', 'connector.credential-write-failed', { operation: 'rotate' });
       this.#setAuthenticated(false);
@@ -478,6 +477,22 @@ export class BridgeConnectorService {
     ));
   }
 
+  async revokeDesktop(): Promise<DesktopRevokedMessage> {
+    this.#requireAuthenticated();
+    const deploymentId = this.#requiredDeploymentId();
+    const instanceId = this.#requiredInstanceId();
+    return this.#request({
+      type: 'desktop.revoke',
+      deploymentId,
+      instanceId,
+      idempotencyKey: this.#id(),
+      requestId: this.#id(),
+      version: BRIDGE_PROTOCOL_VERSION,
+    }, 'desktop.revoked', 'desktop-revoke', (message) => (
+      message.deploymentId === deploymentId && message.instanceId === instanceId
+    ));
+  }
+
   async revokeBinding(bindingId: string): Promise<BindingRevokedMessage> {
     this.#requireAuthenticated();
     const deploymentId = this.#requiredDeploymentId();
@@ -568,11 +583,12 @@ export class BridgeConnectorService {
         return;
       }
       if (!this.#profile.deploymentId) {
-        await this.#persistIdentity(accepted.deploymentId, this.#profile.instanceId);
+        this.#profile = { ...this.#profile, deploymentId: accepted.deploymentId };
       }
 
-      const storedToken = await this.#credentials.getBridgeInstanceToken(this.#profile.profileId);
-      const token = this.#authTokenOverride ?? storedToken;
+      const storedCredential = await this.#readBoundCredential();
+      if (this.#state === 'terminal') return;
+      const token = this.#authTokenOverride ?? storedCredential?.instanceToken ?? null;
       if (token && this.#profile.instanceId) {
         await this.#authenticate(token, generation);
       } else if (!token && !this.#profile.instanceId && this.#bootstrap) {
@@ -609,14 +625,10 @@ export class BridgeConnectorService {
       if (generation !== this.#handshakeGeneration || this.#stopping) return;
 
       try {
-        await this.#credentials.setBridgeInstanceToken(this.#profile.profileId, enrolled.instanceToken);
-        await this.#persistIdentity(enrolled.deploymentId, enrolled.instanceId);
+        if (!this.#commitEnrollment) throw new Error('Crash-recoverable Bridge enrollment commit is unavailable');
+        const next = { ...this.#profile, deploymentId: enrolled.deploymentId, instanceId: enrolled.instanceId };
+        this.#profile = await this.#commitEnrollment(next, enrolled.instanceToken);
       } catch {
-        try {
-          await this.#credentials.deleteBridgeInstanceToken(this.#profile.profileId);
-        } catch {
-          // Fail closed even if rollback itself fails; never expose the token.
-        }
         this.#terminal('credential-store-failed');
         return;
       }
@@ -842,15 +854,26 @@ export class BridgeConnectorService {
     this.#pending.clear();
   }
 
-  async #persistIdentity(deploymentId: string, instanceId?: string): Promise<void> {
-    const next: BridgeProfile = { ...this.#profile, deploymentId };
-    if (instanceId !== undefined) next.instanceId = instanceId;
+  async #readBoundCredential(): Promise<BridgeCredentialEnvelope | null> {
+    let credential: BridgeCredentialEnvelope | null;
     try {
-      this.#profile = await this.#persistProfileFn(next);
+      credential = await this.#credentials.getBridgeInstanceCredential(this.#profile.profileId);
     } catch {
-      this.#terminal('identity-persist-failed');
-      throw new BridgeRequestError('protocol');
+      this.#terminal('credential-binding-invalid');
+      return null;
     }
+    if (!credential) return null;
+    if (!this.#profile.deploymentId || !this.#profile.instanceId || !tokenSchema.safeParse(credential.instanceToken).success
+      || !bridgeCredentialMatches(credential, {
+        origin: this.#profile.url,
+        profileId: this.#profile.profileId,
+        deploymentId: this.#profile.deploymentId,
+        instanceId: this.#profile.instanceId,
+      })) {
+      this.#terminal('credential-binding-invalid');
+      return null;
+    }
+    return credential;
   }
 
   #enrollmentUnknown(): void {

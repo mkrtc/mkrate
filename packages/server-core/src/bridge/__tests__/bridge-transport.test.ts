@@ -73,7 +73,7 @@ function accepted(requestId = id(1)): DesktopServerMessage {
 describe('BridgeTransport security boundary', () => {
   test('uses Desktop endpoint, mandatory TLS validation, and idempotent start/stop', () => {
     const socket = new FakeSocket();
-    const calls: Array<{ url: string; rejectUnauthorized: boolean; maxPayload: number }> = [];
+    const calls: Array<{ url: string; rejectUnauthorized: boolean; perMessageDeflate: boolean; maxPayload: number }> = [];
     const transport = new BridgeTransport({
       baseUrl: 'wss://bridge.example.test',
       webSocketFactory: (url, options) => {
@@ -88,6 +88,7 @@ describe('BridgeTransport security boundary', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe('wss://bridge.example.test/v1/desktop');
     expect(calls[0]?.rejectUnauthorized).toBe(true);
+    expect(calls[0]?.perMessageDeflate).toBe(false);
     transport.stop();
     transport.stop();
     expect(transport.state).toBe('stopped');

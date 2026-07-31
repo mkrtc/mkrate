@@ -19,6 +19,7 @@ export type BridgeLogEvent =
   | 'transport.send-failed'
   | 'connector.state-changed'
   | 'connector.credential-write-failed'
+  | 'connector.authority-write-failed'
   | 'pairing.lease-opened'
   | 'pairing.lease-closed'
   | 'pairing.lease-lost'
@@ -44,7 +45,8 @@ export interface BridgeLogMetadata {
     | 'binding-revoke'
     | 'command-result'
     | 'timeline-event'
-    | 'subscription-close';
+    | 'subscription-close'
+    | 'resync-marker';
   reason?:
     | 'normal'
     | 'network'

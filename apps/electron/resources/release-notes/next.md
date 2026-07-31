@@ -10,4 +10,6 @@ This file accumulates release notes for the next unreleased version. PRs that ad
 
 ## Bug Fixes
 
+- **Visible shared-profile startup conflict** — Mkrate now shows an actionable native error and exits cleanly when another Craft/Mkrate process owns the shared profile, instead of leaving an invisible background process.
+
 ## Breaking Changes

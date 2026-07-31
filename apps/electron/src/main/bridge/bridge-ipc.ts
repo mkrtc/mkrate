@@ -28,12 +28,19 @@ export interface RegisterBridgeIpcOptions {
  */
 export function registerBridgeIpc(options: RegisterBridgeIpcOptions): () => void {
   const { ipcMain, runtime, isOwnerVisible } = options
+  const registered: string[] = []
+  let active = true
+  const handle = (channel: string, listener: (event: BridgeIpcEventLike, ...args: unknown[]) => unknown): void => {
+    ipcMain.handle(channel, listener)
+    registered.push(channel)
+  }
   const visibleOwner = (event: BridgeIpcEventLike): string => {
     if (!isOwnerVisible(event)) throw new Error('Pairing requires a visible local window')
     return ownerId(event)
   }
 
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.getState, (event) => {
+  try {
+  handle(BRIDGE_IPC_CHANNELS.getState, (event) => {
     const owner = ownerId(event)
     if (!isOwnerVisible(event)) {
       runtime.closePairing(owner)
@@ -41,22 +48,28 @@ export function registerBridgeIpc(options: RegisterBridgeIpcOptions): () => void
     }
     return runtime.getSafeState(owner)
   })
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.updateProfile, (_event, request) =>
+  handle(BRIDGE_IPC_CHANNELS.updateProfile, (_event, request) =>
     runtime.updateProfile(request as BridgeProfileUpdateRequest | null))
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.openPairing, (event, allowManualCode) =>
+  handle(BRIDGE_IPC_CHANNELS.openPairing, (event, allowManualCode) =>
     runtime.openPairing(visibleOwner(event), allowManualCode !== false))
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.closePairing, (event) =>
+  handle(BRIDGE_IPC_CHANNELS.closePairing, (event) =>
     runtime.closePairing(ownerId(event)))
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.approvePairing, (event, capabilities) =>
+  handle(BRIDGE_IPC_CHANNELS.approvePairing, (event, capabilities) =>
     runtime.approvePairing(visibleOwner(event), capabilities as readonly DesktopBridgeCommandCapability[]))
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.rejectPairing, (event, reason) =>
+  handle(BRIDGE_IPC_CHANNELS.rejectPairing, (event, reason) =>
     runtime.rejectPairing(visibleOwner(event), reason as PairingRejectReason))
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.listBindings, () => runtime.listBindings())
-  ipcMain.handle(BRIDGE_IPC_CHANNELS.revokeBinding, (_event, bindingId) =>
+  handle(BRIDGE_IPC_CHANNELS.listBindings, () => runtime.listBindings())
+  handle(BRIDGE_IPC_CHANNELS.revokeBinding, (_event, bindingId) =>
     runtime.revokeBinding(bindingId as string))
+  } catch (error) {
+    for (const channel of registered.reverse()) ipcMain.removeHandler(channel)
+    throw error
+  }
 
   return () => {
-    for (const channel of Object.values(BRIDGE_IPC_CHANNELS)) ipcMain.removeHandler(channel)
+    if (!active) return
+    active = false
+    for (const channel of registered.reverse()) ipcMain.removeHandler(channel)
   }
 }
 

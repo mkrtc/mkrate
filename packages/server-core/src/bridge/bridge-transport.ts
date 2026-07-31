@@ -40,6 +40,8 @@ export interface BridgeWebSocketLike {
 export interface BridgeWebSocketOptions {
   /** Always true. Tests may assert this, but production callers cannot override it. */
   rejectUnauthorized: true;
+  /** Compression is forbidden for authenticated Bridge frames. */
+  perMessageDeflate: false;
   maxPayload: number;
 }
 
@@ -62,6 +64,7 @@ const DEFAULT_TIMERS: BridgeTimerApi = {
 function defaultWebSocketFactory(url: string, options: BridgeWebSocketOptions): BridgeWebSocketLike {
   return new WebSocket(url, {
     rejectUnauthorized: options.rejectUnauthorized,
+    perMessageDeflate: options.perMessageDeflate,
     maxPayload: options.maxPayload,
   }) as unknown as BridgeWebSocketLike;
 }
@@ -240,6 +243,7 @@ export class BridgeTransport {
     try {
       socket = this.#factory(this.#url, {
         rejectUnauthorized: true,
+        perMessageDeflate: false,
         maxPayload: SECURITY_LIMITS.websocketMaxPayloadBytes,
       });
     } catch {

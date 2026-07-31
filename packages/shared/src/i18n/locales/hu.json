@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "A munkamenetek betöltése sikertelen",
   "errors.failedToLoadSessionsDesc": "A Mkrate kapcsolódott, de a munkamenetek listájának betöltése nem sikerült. Ez nem üres munkaterületként van kezelve, hogy ne rejtsen el egy valódi hibát vagy adatproblémát.",
   "errors.pleaseReload": "Kérjük, töltsd újra az oldalt. A hiba jelentve lett.",
+  "errors.profileLock.message": "A megosztott Craft/Mkrate-profilt már egy másik folyamat használja{{owner}}. Zárja be a meglévő alkalmazást, majd próbálja újra. Külön példány futtatásához válasszon másik profilt kifejezetten a CRAFT_CONFIG_DIR használatával. A Mkrate nem hozott létre és nem másolt profilt.",
+  "errors.profileLock.title": "Ez a profil már használatban van",
   "errors.retryLoadingSessions": "Munkamenetek újratöltése",
   "errors.sessionNotFound": "A munkamenet nem található",
   "fileViewer.clickToView": "Kattints egy fájl útvonalra a chatben az itt való megtekintéshez",

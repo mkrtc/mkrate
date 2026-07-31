@@ -8,10 +8,18 @@ import {
   BRIDGE_CREDENTIAL_TYPES,
 } from '../types.ts';
 import type { CredentialId, StoredCredential } from '../types.ts';
+import { createBridgeCredentialEnvelope } from '../bridge-credential.ts';
 
 const PROFILE = '123e4567-e89b-12d3-a456-426614174000';
 const OTHER_PROFILE = '00000000-1111-4222-8333-444444444444';
 const SECRET = 'brk_live_super-secret-instance-token';
+const envelope = (profileId = PROFILE, token = SECRET) => createBridgeCredentialEnvelope({
+  origin: 'wss://bridge.example.test',
+  profileId,
+  deploymentId: 'deployment-1',
+  instanceId: 'instance-1',
+  instanceToken: token,
+});
 
 /** In-memory manager keyed via the REAL account converter (exercises full plumbing). */
 function fakeManager(): { manager: CredentialManager; store: Map<string, StoredCredential> } {
@@ -108,50 +116,39 @@ describe('bridge_instance_token account conversion', () => {
 });
 
 describe('CredentialManager bridge helpers (round-trip + isolation)', () => {
-  test('set → get → has → list → delete round-trips per profile id', async () => {
+  test('set → get → has → list → delete round-trips bound envelopes per profile id', async () => {
     const { manager, store } = fakeManager();
-
     expect(await manager.hasBridgeInstanceToken(PROFILE)).toBe(false);
-    await manager.setBridgeInstanceToken(PROFILE, SECRET);
-    await manager.setBridgeInstanceToken(OTHER_PROFILE, 'other-token');
-
-    // Stored under the profile-scoped account key (secret is the VALUE, never the key).
+    await manager.setBridgeInstanceCredential(envelope());
+    await manager.setBridgeInstanceCredential(envelope(OTHER_PROFILE, 'other-token'));
     expect(store.has(`bridge_instance_token::${PROFILE}`)).toBe(true);
     expect([...store.keys()].some((k) => k.includes(SECRET))).toBe(false);
-
-    expect(await manager.getBridgeInstanceToken(PROFILE)).toBe(SECRET);
+    expect(await manager.getBridgeInstanceCredential(PROFILE)).toEqual(envelope());
     expect(await manager.hasBridgeInstanceToken(PROFILE)).toBe(true);
-
-    const ids = await manager.listBridgeInstanceTokenProfileIds();
-    expect(ids.sort()).toEqual([PROFILE, OTHER_PROFILE].sort());
-
+    expect((await manager.listBridgeInstanceTokenProfileIds()).sort()).toEqual([PROFILE, OTHER_PROFILE].sort());
     expect(await manager.deleteBridgeInstanceToken(PROFILE)).toBe(true);
-    expect(await manager.getBridgeInstanceToken(PROFILE)).toBeNull();
-    // The other profile's token is untouched (key isolation).
-    expect(await manager.getBridgeInstanceToken(OTHER_PROFILE)).toBe('other-token');
+    expect(await manager.getBridgeInstanceCredential(PROFILE)).toBeNull();
+    expect((await manager.getBridgeInstanceCredential(OTHER_PROFILE))?.instanceToken).toBe('other-token');
   });
 
-  test('case-variant profile ids resolve to the same canonical account', async () => {
-    const { manager } = fakeManager();
-    await manager.setBridgeInstanceToken(PROFILE.toUpperCase(), SECRET);
-    expect(await manager.getBridgeInstanceToken(PROFILE)).toBe(SECRET);
-    expect(await manager.listBridgeInstanceTokenProfileIds()).toEqual([PROFILE]);
+  test('rejects legacy raw unbound tokens instead of auto-migrating them', async () => {
+    const { manager, store } = fakeManager();
+    store.set(`bridge_instance_token::${PROFILE}`, { value: SECRET });
+    await expect(manager.getBridgeInstanceCredential(PROFILE)).rejects.toMatchObject({ code: 'legacy-unbound' });
   });
 
-  test('bridge tokens do not appear in unrelated typed listings', async () => {
+  test('bridge credentials do not appear in unrelated typed listings', async () => {
     const { manager } = fakeManager();
-    await manager.setBridgeInstanceToken(PROFILE, SECRET);
-    // A memory-key listing must not surface the bridge token.
+    await manager.setBridgeInstanceCredential(envelope());
     expect(await manager.listMemoryApiKeyConnectionIds()).toEqual([]);
   });
 
-  test('rejects a non-UUID profile id and empty/whitespace-only token', async () => {
+  test('rejects invalid profile ids and envelope fields', async () => {
     const { manager } = fakeManager();
-    await expect(manager.setBridgeInstanceToken('not-a-uuid', SECRET)).rejects.toThrow();
-    await expect(manager.getBridgeInstanceToken('not-a-uuid')).rejects.toThrow();
+    await expect(manager.getBridgeInstanceCredential('not-a-uuid')).rejects.toThrow();
     await expect(manager.deleteBridgeInstanceToken('not-a-uuid')).rejects.toThrow();
-    await expect(manager.setBridgeInstanceToken(PROFILE, '')).rejects.toThrow();
-    await expect(manager.setBridgeInstanceToken(PROFILE, '   ')).rejects.toThrow();
+    expect(() => envelope('not-a-uuid')).toThrow();
+    expect(() => envelope(PROFILE, '')).toThrow();
   });
 
   test('bridge helper methods propagate typed backend errors (corrupt store)', async () => {
@@ -179,7 +176,7 @@ describe('CredentialManager bridge helpers (round-trip + isolation)', () => {
     };
     const manager = new CredentialManager({ backends: [backend] });
 
-    await expect(manager.getBridgeInstanceToken(PROFILE)).rejects.toMatchObject({
+    await expect(manager.getBridgeInstanceCredential(PROFILE)).rejects.toMatchObject({
       name: 'CredentialStoreError',
       code: 'decryption_failed',
     });
@@ -193,7 +190,7 @@ describe('CredentialManager bridge helpers (round-trip + isolation)', () => {
 describe('tokens never serialize into config/status representations', () => {
   test('a listed CredentialId carries no secret value', async () => {
     const { manager } = fakeManager();
-    await manager.setBridgeInstanceToken(PROFILE, SECRET);
+    await manager.setBridgeInstanceCredential(envelope());
 
     const ids = await manager.list({ type: 'bridge_instance_token' });
     expect(ids).toEqual([{ type: 'bridge_instance_token', bridgeProfileId: PROFILE }]);

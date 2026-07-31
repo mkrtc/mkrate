@@ -13,6 +13,7 @@ import type { Session, SendMessageOptions } from '@craft-agent/shared/protocol'
 import { BridgeEventProjector, BridgeEventProjectorError } from './bridge-event-projector.ts'
 import { BridgeReplayWindow } from './bridge-replay-window.ts'
 import { BridgeResultCache, BridgeResultCacheError } from './bridge-result-cache.ts'
+import type { BridgeAuthorityStore } from './bridge-authority-store.ts'
 import {
   BridgeSnapshotError,
   BridgeSnapshotService,
@@ -165,6 +166,7 @@ export interface MobileBridgeFacadeOptions {
   readonly now?: () => number
   readonly replay?: BridgeReplayWindow
   readonly resultCache?: BridgeResultCache<CachedOutcome>
+  readonly authorityStore?: BridgeAuthorityStore
 }
 
 /** Closed six-command Desktop boundary. There is intentionally no generic RPC escape hatch. */
@@ -177,13 +179,18 @@ export class MobileBridgeFacade {
 
   private readonly sessions: BridgeSessionPort
   private readonly resultCache: BridgeResultCache<CachedOutcome>
+  private readonly authorityStore?: BridgeAuthorityStore
   private readonly now: () => number
   private readonly rates = new Map<string, { windowStartedAtMs: number; count: number; inFlight: number }>()
 
   constructor(options: MobileBridgeFacadeOptions) {
     this.sessions = options.sessions
     this.now = options.now ?? Date.now
-    this.replay = options.replay ?? new BridgeReplayWindow()
+    this.authorityStore = options.authorityStore
+    this.replay = options.replay ?? new BridgeReplayWindow({
+      epoch: options.authorityStore?.epoch(),
+      persistence: options.authorityStore,
+    })
     this.resultCache = options.resultCache ?? new BridgeResultCache<CachedOutcome>()
     this.authorizer = new BridgeScopeAuthorizer(options.identity, options.sessions)
     this.barrier = new SessionSerializationBarrier()
@@ -194,6 +201,12 @@ export class MobileBridgeFacade {
   /** Drop only live delivery registrations for a transient Mobile disconnect. */
   clearBindingSubscriptions(bindingId: string): void {
     this.events.clearBinding(bindingId)
+  }
+
+  /** A continuity gap is terminal until Mobile obtains a replacement snapshot. */
+  markBindingResyncRequired(bindingId: string): void {
+    this.clearBindingSubscriptions(bindingId)
+    this.replay.markResyncRequired(bindingId)
   }
 
   /** Terminal binding removal: discard subscriptions, replay, idempotency, and rate state. */
@@ -237,11 +250,36 @@ export class MobileBridgeFacade {
       }
     }
 
+    const durableMutation = request.payload.command === 'session.send-message' || request.payload.command === 'session.cancel'
+    let durableIsNew = false
+    if (durableMutation && this.authorityStore) {
+      const admission = this.authorityStore.beginMutation<CachedOutcome>(
+        caller.bindingId,
+        request.idempotencyKey,
+        request.payload,
+        completedAtMs(),
+      )
+      if (admission.kind === 'conflict') return errorResult(request, completedAtMs(), commandError('IDEMPOTENCY_CONFLICT', false))
+      if (admission.kind === 'resync-required') {
+        this.replay.markResyncRequired(caller.bindingId)
+        return errorResult(request, completedAtMs(), {
+          code: 'RESYNC_REQUIRED', retryable: false, retryAfterMs: null,
+          currentCursor: this.replay.currentCursor(caller.bindingId),
+        })
+      }
+      if (admission.kind === 'completed') return outcomeResult(request, completedAtMs(), admission.outcome)
+      durableIsNew = true
+    }
+
     let execution: Promise<CachedOutcome>
     try {
-      execution = this.resultCache.run(caller.bindingId, request.idempotencyKey, request.payload, () =>
-        this.executeRateLimited(caller, request.idempotencyKey, request.payload),
-      )
+      execution = this.resultCache.run(caller.bindingId, request.idempotencyKey, request.payload, async () => {
+        const outcome = await this.executeRateLimited(caller, request.idempotencyKey, request.payload)
+        if (durableIsNew && this.authorityStore) {
+          this.authorityStore.completeMutation(caller.bindingId, request.idempotencyKey, outcome, completedAtMs())
+        }
+        return outcome
+      })
     } catch (error) {
       const mapped = error instanceof BridgeResultCacheError && error.code === 'REQUEST_ID_REUSE'
         ? commandError('IDEMPOTENCY_CONFLICT', false)
@@ -249,17 +287,7 @@ export class MobileBridgeFacade {
       return errorResult(request, completedAtMs(), mapped)
     }
 
-    const outcome = await execution
-    if (outcome.outcome === 'success') {
-      return {
-        bindingId: caller.bindingId,
-        commandId: request.commandId,
-        outcome: 'success',
-        completedAtMs: completedAtMs(),
-        result: outcome.result,
-      }
-    }
-    return errorResult(request, completedAtMs(), outcome.error)
+    return outcomeResult(request, completedAtMs(), await execution)
   }
 
   private async executeRateLimited(
@@ -461,6 +489,17 @@ function errorResult(request: CommandRequestBody, completedAtMs: number, error: 
     completedAtMs,
     command: request.payload.command,
     error,
+  }
+}
+
+function outcomeResult(request: CommandRequestBody, completedAtMs: number, outcome: CachedOutcome): CommandResultBody {
+  if (outcome.outcome === 'error') return errorResult(request, completedAtMs, outcome.error)
+  return {
+    bindingId: request.bindingId,
+    commandId: request.commandId,
+    outcome: 'success',
+    completedAtMs,
+    result: outcome.result,
   }
 }
 

@@ -90,7 +90,7 @@ import { registerCoreRpcHandlers, cleanupSessionFileWatchForClient, cleanupSessi
 import type { PlatformServices } from '../runtime/platform'
 import { createElectronPlatform } from './platform'
 import type { HandlerDeps } from './handlers/handler-deps'
-import { bootstrapServer, releaseServerLock } from '@craft-agent/server-core/bootstrap'
+import { bootstrapServer, releaseServerLock, ServerLockConflictError } from '@craft-agent/server-core/bootstrap'
 import { createMessagingBootstrap, type MessagingBootstrapHandle } from '@craft-agent/messaging-gateway'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { initModelRefreshService, getModelRefreshService, setFetcherPlatform } from '@craft-agent/server-core/model-fetchers'
@@ -124,6 +124,7 @@ import type { EventSink } from '@craft-agent/server-core/transport'
 import { validateGitBashPath, checkVCRedistInstalled } from '@craft-agent/server-core/services'
 import { ElectronBridgeRuntime, stopBridgeBeforeSessionCleanup } from './bridge/bridge-runtime'
 import { registerBridgeIpc, type BridgeIpcEventLike } from './bridge/bridge-ipc'
+import { bindBridgeOwnerLifecycle } from './bridge/bridge-owner-lifecycle'
 
 // Initialize electron-log for renderer process support
 log.initialize()
@@ -220,6 +221,7 @@ let moduleSink: EventSink | null = null
 let moduleClientResolver: ((webContentsId: number) => string | undefined) | null = null
 let bridgeRuntime: ElectronBridgeRuntime | null = null
 let unregisterBridgeIpc: (() => void) | null = null
+let unregisterBridgeWindowLifecycle: (() => void) | null = null
 
 // Messaging gateway: the bootstrap handle is created once sessionManager is
 // available (inside createHandlerDeps) and populated with the WS publisher
@@ -785,25 +787,58 @@ app.whenReady().then(async () => {
 
       // Trusted Bridge is authoritative-host-only. Construct it after
       // SessionManager initialization and before the final event-sink fan-out.
-      try {
-        bridgeRuntime = new ElectronBridgeRuntime({
+      {
+        const candidate = new ElectronBridgeRuntime({
           sessionManager: instance.sessionManager,
           credentials: getCredentialManager(),
           clientVersion: app.getVersion(),
           allowInsecureLoopback: !app.isPackaged,
         })
-        bridgeRuntime.start()
-        unregisterBridgeIpc = registerBridgeIpc({
-          ipcMain,
-          runtime: bridgeRuntime,
-          isOwnerVisible: (event: BridgeIpcEventLike) => {
-            const window = BrowserWindow.fromWebContents(event.sender as Electron.WebContents)
-            return !!window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()
-          },
-        })
-      } catch {
-        bridgeRuntime = null
-        mainLog.error('[bridge] Authoritative host initialization failed')
+        let rollbackIpc: (() => void) | null = null
+        let rollbackLifecycle: (() => void) | null = null
+        try {
+          await candidate.start()
+          rollbackIpc = registerBridgeIpc({
+            ipcMain,
+            runtime: candidate,
+            isOwnerVisible: (event: BridgeIpcEventLike) => {
+              const window = BrowserWindow.fromWebContents(event.sender as Electron.WebContents)
+              return !!window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()
+            },
+          })
+
+          const ownerCleanups = new Map<number, () => void>()
+          const bindOwner = (window: BrowserWindow) => {
+            const webContentsId = window.webContents.id
+            if (ownerCleanups.has(webContentsId)) return
+            const cleanup = bindBridgeOwnerLifecycle(window, candidate)
+            ownerCleanups.set(webContentsId, cleanup)
+            window.once('closed', () => {
+              ownerCleanups.get(webContentsId)?.()
+              ownerCleanups.delete(webContentsId)
+            })
+          }
+          const onWindowCreated = (_event: Electron.Event, window: BrowserWindow) => bindOwner(window)
+          let lifecycleActive = true
+          rollbackLifecycle = () => {
+            if (!lifecycleActive) return
+            lifecycleActive = false
+            app.removeListener('browser-window-created', onWindowCreated)
+            for (const cleanup of ownerCleanups.values()) cleanup()
+            ownerCleanups.clear()
+          }
+          app.on('browser-window-created', onWindowCreated)
+          for (const window of BrowserWindow.getAllWindows()) bindOwner(window)
+
+          bridgeRuntime = candidate
+          unregisterBridgeIpc = rollbackIpc
+          unregisterBridgeWindowLifecycle = rollbackLifecycle
+        } catch (error) {
+          rollbackLifecycle?.()
+          rollbackIpc?.()
+          await candidate.stop().catch(() => undefined)
+          mainLog.error('[bridge] Authoritative host initialization failed:', error instanceof Error ? error.message : error)
+        }
       }
 
       // -----------------------------------------------------------------------
@@ -1207,7 +1242,16 @@ app.whenReady().then(async () => {
     mainLog.info('Messaging gateway log path:', getMessagingGatewayLogFilePath())
   } catch (error) {
     mainLog.error('Failed to initialize app:', error instanceof Error ? error.message : error, (error as any)?.stack)
-    // Continue anyway - the app will show errors in the UI
+    if (error instanceof ServerLockConflictError) {
+      const owner = error.ownerPid ? ` (PID ${error.ownerPid})` : ''
+      dialog.showErrorBox(
+        i18n.t('errors.profileLock.title'),
+        i18n.t('errors.profileLock.message', { owner }),
+      )
+      app.exit(1)
+      return
+    }
+    // Non-lock initialization failures keep the existing recoverable UI path.
   }
 
   // macOS: Re-create window when dock icon is clicked
@@ -1338,6 +1382,8 @@ async function runQuitCleanup(
 
   // Stop local Bridge admission, pairing, subscriptions, and socket before
   // SessionManager teardown. Direct Bridge IPC is removed at the same fence.
+  unregisterBridgeWindowLifecycle?.()
+  unregisterBridgeWindowLifecycle = null
   unregisterBridgeIpc?.()
   unregisterBridgeIpc = null
   const runtimeToStop = bridgeRuntime

@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
   "package": "@mkrate/bridge-protocol",
-  "version": "1.0.0",
-  "artifact": "vendor/mkrate-bridge-protocol-1.0.0.tgz",
-  "sha256": "e4293f8c9c52201b8299b5c6c73ff4e88e5d8402c77470dcc55d9ca897aacb17",
+  "version": "1.0.1",
+  "artifact": "vendor/mkrate-bridge-protocol-1.0.1.tgz",
+  "sha256": "9ec050cfe35d8fdc960e2e6a345e2268bb59be655a0ff031c1f999dc7b14d637",
+  "conformanceDigest": "b0322b8ecdfe84d546f1262bd56b5bb674da1690de06694eebfcab25e1f715f2",
   "source": {
     "repository": "https://github.com/mkrtc/mkrate-relay",
-    "commit": "499d56b7bfee15914ecc0bdf165f3b9ab76e53f3",
+    "commit": "6cbc6e8faef8f0766472a2b7fa7b7b359140f06f",
     "protocolEpoch": "mkrate-bridge/v1"
   },
-  "status": "local-vertical-slice-only-not-published"
+  "status": "local-wave-a-hardening-not-published"
 }

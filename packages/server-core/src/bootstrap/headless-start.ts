@@ -1,4 +1,4 @@
-import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'node:fs'
+import { closeSync, fsyncSync, openSync, readFileSync, unlinkSync, existsSync, writeSync } from 'node:fs'
 import { uptime as osUptime } from 'node:os'
 import { join } from 'node:path'
 import { OAuthFlowStore } from '@craft-agent/shared/auth'
@@ -181,48 +181,49 @@ function isLockFromPreviousBoot(startedAt: number): boolean {
   return startedAt < bootTime
 }
 
-function acquireServerLock(logger: PlatformServices['logger']): void {
-  if (existsSync(LOCK_FILE)) {
-    try {
-      const content = readFileSync(LOCK_FILE, 'utf-8')
-      const lock = parseLockContent(content)
-
-      if (lock) {
-        // In Docker, PID 1 is reused across container restarts.
-        // If the lock holds our own PID, it's stale from a previous run.
-        if (lock.pid === process.pid) {
-          logger.warn(`[bootstrap] Lock file holds current PID ${lock.pid} (stale from previous container lifecycle), overwriting`)
-        } else if (isProcessAlive(lock.pid)) {
-          // PID is alive — but is it actually from a previous boot?
-          // If the lock was written before the current boot, the OS has
-          // recycled the PID and the process is unrelated.
-          if (isLockFromPreviousBoot(lock.startedAt)) {
-            logger.warn(`[bootstrap] Lock PID ${lock.pid} is alive but lock predates current boot (stale due to PID reuse), overwriting`)
-          } else {
-            throw new Error(
-              `Another server instance is already running (PID ${lock.pid}). ` +
-              `If this is stale, delete ${LOCK_FILE} and retry. ` +
-              `To run a parallel instance (e.g. for dev), set CRAFT_CONFIG_DIR to a different path.`
-            )
-          }
-        } else {
-          logger.warn(`[bootstrap] Stale lock file found (PID ${lock.pid}), overwriting`)
-        }
-      } else {
-        logger.warn('[bootstrap] Could not parse lock file, overwriting')
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('Another server instance')) throw err
-      logger.warn('[bootstrap] Could not read lock file, overwriting')
-    }
+export class ServerLockConflictError extends Error {
+  constructor(readonly ownerPid: number | null, readonly lockFile: string) {
+    super(ownerPid
+      ? `Another Craft/Mkrate server owns this profile (PID ${ownerPid}). Close the existing application, or explicitly select a separate profile with CRAFT_CONFIG_DIR.`
+      : `The Craft/Mkrate profile lock is unreadable. Resolve ${lockFile}, or explicitly select a separate profile with CRAFT_CONFIG_DIR.`)
+    this.name = 'ServerLockConflictError'
   }
+}
 
-  const payload: LockPayload = { pid: process.pid, startedAt: Date.now() }
-  writeFileSync(LOCK_FILE, JSON.stringify(payload), 'utf-8')
+function acquireServerLock(logger: PlatformServices['logger']): void {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let fd: number | undefined
+    try {
+      fd = openSync(LOCK_FILE, 'wx', 0o600)
+      const payload: LockPayload = { pid: process.pid, startedAt: Date.now() }
+      writeSync(fd, JSON.stringify(payload))
+      fsyncSync(fd)
+      closeSync(fd)
+      fd = undefined
+      process.on('exit', () => { releaseServerLock() })
+      return
+    } catch (error) {
+      if (fd !== undefined) { try { closeSync(fd) } catch { /* ignore */ } }
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'EEXIST') throw error
+    }
 
-  // Safety net: release the lock on unexpected exits (SIGKILL, uncaught exceptions, etc.).
-  // process.on('exit') only allows synchronous code — releaseServerLock is fully sync.
-  process.on('exit', () => { releaseServerLock() })
+    let content: string
+    try { content = readFileSync(LOCK_FILE, 'utf-8') } catch { continue }
+    const lock = parseLockContent(content)
+    if (!lock) throw new ServerLockConflictError(null, LOCK_FILE)
+    const stale = !isProcessAlive(lock.pid) || isLockFromPreviousBoot(lock.startedAt)
+    if (!stale) throw new ServerLockConflictError(lock.pid, LOCK_FILE)
+
+    // Compare immediately before unlink so a concurrent fresh owner is never
+    // removed based on metadata read from an older inode.
+    try {
+      if (readFileSync(LOCK_FILE, 'utf-8') !== content) continue
+      unlinkSync(LOCK_FILE)
+      logger.warn(`[bootstrap] Removed stale profile lock owned by PID ${lock.pid}`)
+    } catch { continue }
+  }
+  throw new ServerLockConflictError(null, LOCK_FILE)
 }
 
 /**
@@ -298,8 +299,15 @@ export async function bootstrapServer<TSessionManager, THandlerDeps>(
   ensureGlobalConfigExists(platform)
   acquireServerLock(platform.logger)
 
+  let startupModelRefresh: ModelRefreshServiceLike | null = null
+  let startupSessionManager: TSessionManager | null = null
+  let startupWsServer: WsRpcServer | null = null
+  let startupOauthStore: OAuthFlowStore | null = null
+  try {
   const modelRefreshService = options.initModelRefreshService()
+  startupModelRefresh = modelRefreshService
   const sessionManager = options.createSessionManager()
+  startupSessionManager = sessionManager
 
   const rpcHost = options.rpcHost ?? process.env.CRAFT_RPC_HOST ?? '127.0.0.1'
   const rpcPortRaw = options.rpcPort ?? parseInt(process.env.CRAFT_RPC_PORT ?? '9100', 10)
@@ -334,11 +342,13 @@ export async function bootstrapServer<TSessionManager, THandlerDeps>(
     },
   })
 
+  startupWsServer = wsServer
   await wsServer.listen()
 
   options.bindRpcServer?.(sessionManager, wsServer)
 
   const oauthFlowStore = new OAuthFlowStore()
+  startupOauthStore = oauthFlowStore
 
   const deps = options.createHandlerDeps({
     sessionManager,
@@ -418,6 +428,20 @@ export async function bootstrapServer<TSessionManager, THandlerDeps>(
     token: serverToken,
     serverHandlerContext,
     stop,
+  }
+  } catch (error) {
+    try { startupModelRefresh?.stopAll?.() } catch { /* rollback continues */ }
+    try { startupWsServer?.close() } catch { /* rollback continues */ }
+    try { startupOauthStore?.dispose() } catch { /* rollback continues */ }
+    if (startupSessionManager) {
+      try {
+        await options.cleanupSessionManager?.(startupSessionManager, {
+          deadline: Date.now() + resolveRuntimeLifecycleConfig().shutdownTimeoutMs,
+        })
+      } catch { /* rollback continues */ }
+    }
+    releaseServerLock()
+    throw error
   }
 }
 

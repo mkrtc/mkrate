@@ -7,11 +7,26 @@ interface ReplayEntry {
   readonly dedupeKey?: string
 }
 
+export interface BridgeReplayPersistenceState {
+  sequence: number
+  entries: Array<{ event: TimelineEvent; dedupeKey?: string }>
+  snapshotCheckpoints: number[]
+  resyncRequired: boolean
+}
+
+export interface BridgeReplayPersistence {
+  loadReplay(bindingId: string): BridgeReplayPersistenceState | null
+  saveReplay(bindingId: string, state: BridgeReplayPersistenceState, options?: { clearResync?: boolean }): void
+  deleteReplay(bindingId: string): void
+  markResyncRequired(bindingId: string): void
+}
+
 interface BindingWindow {
   sequence: number
   readonly entries: ReplayEntry[]
   readonly dedupe: Map<string, TimelineEvent>
   readonly snapshotCheckpoints: number[]
+  resyncRequired: boolean
 }
 
 export type ReplayReadResult =
@@ -28,17 +43,20 @@ export interface AppendTimelineEventInput {
 export interface BridgeReplayWindowOptions {
   maxEvents?: number
   epoch?: string
+  persistence?: BridgeReplayPersistence
 }
 
-/** Bounded, process-local, per-binding replay. A new epoch means Desktop restart. */
+/** Bounded per-binding replay with optional crash-atomic Desktop persistence. */
 export class BridgeReplayWindow {
   private readonly maxEvents: number
   private readonly epoch: string
+  private readonly persistence?: BridgeReplayPersistence
   private readonly windows = new Map<string, BindingWindow>()
 
   constructor(options: BridgeReplayWindowOptions = {}) {
     this.maxEvents = options.maxEvents ?? SECURITY_LIMITS.replayMaxEvents
     this.epoch = options.epoch ?? randomUUID().replaceAll('-', '')
+    this.persistence = options.persistence
     if (!Number.isSafeInteger(this.maxEvents) || this.maxEvents <= 0 || this.maxEvents > SECURITY_LIMITS.replayMaxEvents) {
       throw new Error(`maxEvents must be between 1 and ${SECURITY_LIMITS.replayMaxEvents}`)
     }
@@ -68,6 +86,7 @@ export class BridgeReplayWindow {
         window.dedupe.delete(evicted.dedupeKey)
       }
     }
+    this.persist(bindingId, window)
     return event
   }
 
@@ -92,12 +111,18 @@ export class BridgeReplayWindow {
       } satisfies TimelineEvent
     })
     this.addSnapshotCheckpoint(window, window.sequence)
+    window.resyncRequired = false
+    // Persist the replacement snapshot cursor and cleared resync marker in one
+    // authority-store transaction. A crash cannot expose "resync cleared" with
+    // the pre-snapshot replay state.
+    this.persist(bindingId, window, true)
     return { events, baseCursor: this.cursor(bindingId, window.sequence) }
   }
 
   replay(bindingId: string, afterCursor: string | null, sessionId?: string): ReplayReadResult {
     const window = this.getWindow(bindingId)
     const currentCursor = this.cursor(bindingId, window.sequence)
+    if (window.resyncRequired) return { kind: 'resync-required', currentCursor }
     if (afterCursor === null) return { kind: 'ok', events: [], throughCursor: currentCursor }
     const afterSequence = this.parseCursor(bindingId, afterCursor)
     if (afterSequence === null || afterSequence > window.sequence) {
@@ -126,17 +151,42 @@ export class BridgeReplayWindow {
     return this.cursor(bindingId, this.getWindow(bindingId).sequence)
   }
 
+  markResyncRequired(bindingId: string): void {
+    const window = this.getWindow(bindingId)
+    window.resyncRequired = true
+    this.persistence?.markResyncRequired(bindingId)
+    this.persist(bindingId, window)
+  }
+
   clearBinding(bindingId: string): void {
     this.windows.delete(bindingId)
+    this.persistence?.deleteReplay(bindingId)
   }
 
   private getWindow(bindingId: string): BindingWindow {
     let window = this.windows.get(bindingId)
     if (!window) {
-      window = { sequence: 0, entries: [], dedupe: new Map(), snapshotCheckpoints: [0] }
+      const stored = this.persistence?.loadReplay(bindingId)
+      const entries = stored?.entries.map(entry => ({ event: entry.event, ...(entry.dedupeKey ? { dedupeKey: entry.dedupeKey } : {}) })) ?? []
+      window = {
+        sequence: stored?.sequence ?? 0,
+        entries,
+        dedupe: new Map(entries.flatMap(entry => entry.dedupeKey ? [[entry.dedupeKey, entry.event] as const] : [])),
+        snapshotCheckpoints: stored?.snapshotCheckpoints ?? [0],
+        resyncRequired: stored?.resyncRequired ?? false,
+      }
       this.windows.set(bindingId, window)
     }
     return window
+  }
+
+  private persist(bindingId: string, window: BindingWindow, clearResync = false): void {
+    this.persistence?.saveReplay(bindingId, {
+      sequence: window.sequence,
+      entries: window.entries.map(entry => ({ event: entry.event, ...(entry.dedupeKey ? { dedupeKey: entry.dedupeKey } : {}) })),
+      snapshotCheckpoints: [...window.snapshotCheckpoints],
+      resyncRequired: window.resyncRequired,
+    }, { clearResync })
   }
 
   private cursor(bindingId: string, sequence: number): string {

@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "无法加载会话列表",
   "errors.failedToLoadSessionsDesc": "Mkrate 已连接，但加载会话列表失败。为避免隐藏真实错误或数据问题，此处不视为空 Workspace。",
   "errors.pleaseReload": "请重新加载页面。错误已被报告。",
+  "errors.profileLock.message": "共享的 Craft/Mkrate 配置文件已由另一个进程占用{{owner}}。请关闭现有应用后重试。若要运行独立实例，请使用 CRAFT_CONFIG_DIR 明确选择其他配置文件。Mkrate 未创建或复制配置文件。",
+  "errors.profileLock.title": "此配置文件正在使用中",
   "errors.retryLoadingSessions": "重试加载会话",
   "errors.sessionNotFound": "未找到会话",
   "fileViewer.clickToView": "点击聊天中的文件路径在此查看",

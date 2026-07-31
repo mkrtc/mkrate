@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "Nie udało się załadować sesji",
   "errors.failedToLoadSessionsDesc": "Mkrate nawiązał połączenie, ale ładowanie listy sesji nie powiodło się. Nie jest to traktowane jako pusty Workspace, aby uniknąć ukrycia prawdziwego błędu lub problemu z danymi.",
   "errors.pleaseReload": "Odśwież stronę. Błąd został zgłoszony.",
+  "errors.profileLock.message": "Wspólny profil Craft/Mkrate jest już używany przez inny proces{{owner}}. Zamknij istniejącą aplikację i spróbuj ponownie. Aby uruchomić osobną instancję, jawnie wybierz inny profil za pomocą CRAFT_CONFIG_DIR. Mkrate nie utworzył ani nie skopiował profilu.",
+  "errors.profileLock.title": "Ten profil jest już używany",
   "errors.retryLoadingSessions": "Spróbuj ponownie załadować sesje",
   "errors.sessionNotFound": "Sesja nie została znaleziona",
   "fileViewer.clickToView": "Kliknij ścieżkę pliku w czacie, aby go tutaj wyświetlić",

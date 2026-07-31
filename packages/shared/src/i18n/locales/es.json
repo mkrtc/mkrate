@@ -517,6 +517,8 @@
   "errors.failedToLoadSessions": "No se pudieron cargar las sesiones",
   "errors.failedToLoadSessionsDesc": "Mkrate pudo conectarse, pero falló al cargar la lista de sesiones. No se trata como un Workspace vacío para evitar ocultar un error real o un problema de datos.",
   "errors.pleaseReload": "Por favor recarga la página. El error ha sido reportado.",
+  "errors.profileLock.message": "El perfil compartido de Craft/Mkrate ya pertenece a otro proceso{{owner}}. Cierra la aplicación existente e inténtalo de nuevo. Para ejecutar otra instancia, elige explícitamente otro perfil con CRAFT_CONFIG_DIR. Mkrate no creó ni copió ningún perfil.",
+  "errors.profileLock.title": "Este perfil ya está en uso",
   "errors.retryLoadingSessions": "Reintentar cargar sesiones",
   "errors.sessionNotFound": "Sesión no encontrada",
   "fileViewer.clickToView": "Haz clic en una ruta de archivo en el chat para verlo aquí",

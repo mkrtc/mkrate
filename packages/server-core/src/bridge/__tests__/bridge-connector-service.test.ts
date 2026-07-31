@@ -8,6 +8,7 @@ import {
   type DesktopServerMessage,
 } from '@mkrate/bridge-protocol';
 import type { BridgeProfile } from '@craft-agent/shared/config';
+import { createBridgeCredentialEnvelope, type BridgeCredentialEnvelope } from '@craft-agent/shared/credentials';
 import {
   BridgeConnectorService,
   type BridgeCredentialAccess,
@@ -43,14 +44,20 @@ function profile(identity = false): BridgeProfile {
 class FakeCredentials implements BridgeCredentialAccess {
   value: string | null;
   failSet = false;
+  origin = 'wss://bridge.example.test';
   setCalls: string[] = [];
   deleteCalls = 0;
   constructor(value: string | null) { this.value = value; }
-  async getBridgeInstanceToken(): Promise<string | null> { return this.value; }
-  async setBridgeInstanceToken(_profileId: string, value: string): Promise<void> {
-    this.setCalls.push(value);
+  async getBridgeInstanceCredential(): Promise<BridgeCredentialEnvelope | null> {
+    return this.value ? createBridgeCredentialEnvelope({
+      origin: this.origin, profileId: PROFILE_ID,
+      deploymentId: DEPLOYMENT_ID, instanceId: INSTANCE_ID, instanceToken: this.value,
+    }) : null;
+  }
+  async setBridgeInstanceCredential(envelope: BridgeCredentialEnvelope): Promise<void> {
+    this.setCalls.push(envelope.instanceToken);
     if (this.failSet) throw new Error('store failed with secret');
-    this.value = value;
+    this.value = envelope.instanceToken;
   }
   async deleteBridgeInstanceToken(): Promise<boolean> {
     this.deleteCalls += 1;
@@ -108,7 +115,11 @@ function harness(options: {
     enrollmentToken: options.enrollmentToken,
     randomBytes: (length) => new Uint8Array(length).fill(random++),
     logger: createBridgeLogger((record) => records.push(record)),
-    persistProfile: async (next) => {
+    commitEnrollment: async (next: BridgeProfile, instanceToken: string) => {
+      await credentials.setBridgeInstanceCredential(createBridgeCredentialEnvelope({
+        origin: next.url, profileId: next.profileId, deploymentId: next.deploymentId!,
+        instanceId: next.instanceId!, instanceToken,
+      }));
       const stored = { ...next, updatedAt: next.updatedAt + 1 };
       persisted.push(stored);
       return stored;
@@ -221,6 +232,17 @@ describe('BridgeConnectorService correlation and credential lifecycle', () => {
     expect(duplicate.service.terminalReason).toBe('protocol-error');
   });
 
+  test('never sends a credential bound to another canonical origin', async () => {
+    const h = harness({ identity: true, credential: INSTANCE_TOKEN });
+    h.credentials.origin = 'wss://old-bridge.example.test';
+    h.service.start();
+    const negotiate = await waitFor(h, 'deployment.negotiate');
+    h.transport.emit(accept(negotiate.requestId));
+    for (let i = 0; i < 20 && h.service.state !== 'terminal'; i++) await flush();
+    expect(h.service.terminalReason).toBe('credential-binding-invalid');
+    expect(h.transport.sent.some(message => message.type === 'desktop.auth')).toBe(false);
+  });
+
   test('uses auth-only reconnect after a previously authenticated connection drops', async () => {
     const h = harness({ identity: true, credential: INSTANCE_TOKEN });
     await driveToAuth(h);
@@ -230,7 +252,7 @@ describe('BridgeConnectorService correlation and credential lifecycle', () => {
     const negotiates = h.transport.sent.filter((message) => message.type === 'deployment.negotiate');
     const reconnectNegotiate = negotiates.at(-1)!;
     h.transport.emit(accept(reconnectNegotiate.requestId));
-    await flush();
+    for (let i = 0; i < 20 && h.transport.sent.filter(message => message.type === 'desktop.auth').length < 2; i++) await flush();
     const auths = h.transport.sent.filter((message) => message.type === 'desktop.auth');
     expect(auths).toHaveLength(2);
     expect(h.transport.sent.some((message) => message.type === 'desktop.enroll')).toBe(false);
@@ -347,7 +369,7 @@ describe('BridgeConnectorService correlation and credential lifecycle', () => {
     await flush();
     const reconnectNegotiate = h.transport.sent.filter((message): message is Extract<DesktopClientMessage, { type: 'deployment.negotiate' }> => message.type === 'deployment.negotiate').at(-1)!;
     h.transport.emit(accept(reconnectNegotiate.requestId));
-    await flush();
+    for (let i = 0; i < 20 && h.transport.sent.filter(message => message.type === 'desktop.auth').length < 2; i++) await flush();
     const reconnectAuth = h.transport.sent.filter((message): message is Extract<DesktopClientMessage, { type: 'desktop.auth' }> => message.type === 'desktop.auth').at(-1)!;
     h.transport.emit(authenticated(reconnectAuth.requestId));
     await flush();

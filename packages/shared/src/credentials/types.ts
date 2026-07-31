@@ -42,7 +42,11 @@ export type CredentialType =
   // persisted per-instance Bridge token ONLY. There is deliberately NO persisted
   // enrollment/bootstrap token type — a bootstrap/pairing code is one-shot and
   // must never be written to disk.
-  | 'bridge_instance_token' // Per-instance Bridge token, scoped by bridgeProfileId
+  | 'bridge_instance_token' // Per-instance Bridge token envelope, scoped by bridgeProfileId
+  // Internal Bridge enrollment/profile saga staging/quarantine identities. These
+  // are encrypted and never represent enrollment/bootstrap material.
+  | 'bridge_saga_stage'
+  | 'bridge_saga_quarantine'
   // Internal A5 saga staging/quarantine identities (keyed by saga UUID + slot).
   // These hold before/after secret material for an in-flight saga so a crash is
   // recoverable. They are encrypted at rest like any credential, and are
@@ -67,6 +71,8 @@ const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'messaging_bearer',
   'memory_api_key',
   'bridge_instance_token',
+  'bridge_saga_stage',
+  'bridge_saga_quarantine',
   'memory_saga_stage',
   'memory_saga_quarantine',
 ] as const;
@@ -100,8 +106,8 @@ export interface CredentialId {
   /** Bridge profile UUID for bridge_instance_token credentials */
   bridgeProfileId?: string;
 
-  // Internal A5 saga staging/quarantine format
-  /** Saga UUID for memory_saga_stage / memory_saga_quarantine credentials */
+  // Internal A5 / Bridge saga staging/quarantine format
+  /** Saga UUID for encrypted saga staging/quarantine credentials. */
   sagaId?: string;
   /** Which secret slot this staging/quarantine entry holds. */
   sagaSlot?: 'before' | 'after';
@@ -208,6 +214,20 @@ function isBridgeCredential(type: CredentialType): boolean {
   return (BRIDGE_CREDENTIAL_TYPES as readonly string[]).includes(type);
 }
 
+/** Internal Bridge saga staging/quarantine credential types. */
+export const BRIDGE_SAGA_CREDENTIAL_TYPES = [
+  'bridge_saga_stage',
+  'bridge_saga_quarantine',
+] as const;
+
+function isBridgeSagaStage(type: CredentialType): boolean {
+  return type === 'bridge_saga_stage';
+}
+
+function isBridgeSagaQuarantine(type: CredentialType): boolean {
+  return type === 'bridge_saga_quarantine';
+}
+
 /** Internal A5 saga staging/quarantine credential types (never listed generically). */
 export const MEMORY_SAGA_CREDENTIAL_TYPES = [
   'memory_saga_stage',
@@ -276,6 +296,31 @@ export function credentialIdToAccount(id: CredentialId): string {
       throw new Error('bridge_instance_token credential requires a valid UUID bridgeProfileId');
     }
     parts.push(canonical);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
+  // Internal Bridge saga staging format.
+  if (isBridgeSagaStage(id.type)) {
+    const canonical = id.sagaId ? toCanonicalUuid(id.sagaId) : null;
+    if (!canonical) throw new Error('bridge_saga_stage credential requires a valid UUID sagaId');
+    if (id.sagaSlot !== 'before' && id.sagaSlot !== 'after') {
+      throw new Error('bridge_saga_stage credential requires slot "before" or "after"');
+    }
+    parts.push(canonical, id.sagaSlot);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
+  // Internal Bridge saga quarantine format.
+  if (isBridgeSagaQuarantine(id.type)) {
+    const canonical = id.sagaId ? toCanonicalUuid(id.sagaId) : null;
+    if (!canonical) throw new Error('bridge_saga_quarantine credential requires a valid UUID sagaId');
+    if (id.sagaSlot !== 'before' && id.sagaSlot !== 'after') {
+      throw new Error('bridge_saga_quarantine credential requires slot "before" or "after"');
+    }
+    if (!id.quarantineToken || !QUARANTINE_TOKEN_PATTERN.test(id.quarantineToken)) {
+      throw new Error('bridge_saga_quarantine credential requires a hex quarantineToken');
+    }
+    parts.push(canonical, id.sagaSlot, id.quarantineToken);
     return parts.join(CREDENTIAL_DELIMITER);
   }
 
@@ -415,6 +460,16 @@ export function accountToCredentialId(account: string): CredentialId | null {
   // distinct account.
   if (isBridgeCredential(type) && parts.length === 2 && isCanonicalUuid(parts[1])) {
     return { type, bridgeProfileId: parts[1] };
+  }
+
+  // Internal Bridge saga staging/quarantine formats.
+  if (isBridgeSagaStage(type) && parts.length === 3 && isCanonicalUuid(parts[1])
+    && (parts[2] === 'before' || parts[2] === 'after')) {
+    return { type, sagaId: parts[1], sagaSlot: parts[2] };
+  }
+  if (isBridgeSagaQuarantine(type) && parts.length === 4 && isCanonicalUuid(parts[1])
+    && (parts[2] === 'before' || parts[2] === 'after') && QUARANTINE_TOKEN_PATTERN.test(parts[3] ?? '')) {
+    return { type, sagaId: parts[1], sagaSlot: parts[2], quarantineToken: parts[3] };
   }
 
   // Internal saga staging format:

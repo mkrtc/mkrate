@@ -7,6 +7,7 @@ import {
   type DesktopServerMessage,
 } from '@mkrate/bridge-protocol'
 import type { BridgeProfile } from '@craft-agent/shared/config'
+import { createBridgeCredentialEnvelope, type BridgeCredentialEnvelope } from '@craft-agent/shared/credentials'
 import { RPC_CHANNELS, type SessionEvent } from '@craft-agent/shared/protocol'
 import {
   BridgeConnectorService,
@@ -44,8 +45,13 @@ function profile(): BridgeProfile {
 }
 
 class FakeCredentials implements BridgeCredentialAccess {
-  async getBridgeInstanceToken(): Promise<string | null> { return INSTANCE_TOKEN }
-  async setBridgeInstanceToken(): Promise<void> {}
+  async getBridgeInstanceCredential(): Promise<BridgeCredentialEnvelope> {
+    return createBridgeCredentialEnvelope({
+      origin: profile().url, profileId: PROFILE_ID, deploymentId: DEPLOYMENT_ID,
+      instanceId: INSTANCE_ID, instanceToken: INSTANCE_TOKEN,
+    })
+  }
+  async setBridgeInstanceCredential(): Promise<void> {}
   async deleteBridgeInstanceToken(): Promise<boolean> { return true }
 }
 
@@ -54,6 +60,7 @@ class FakeTransport implements BridgeTransportPort {
   sent: DesktopClientMessage[] = []
   starts = 0
   stops = 0
+  failNextSend = false
 
   constructor(readonly callbacks: {
     onOpen(): void
@@ -71,7 +78,10 @@ class FakeTransport implements BridgeTransportPort {
     this.connected = false
   }
   retry(): void {}
-  async send(message: DesktopClientMessage): Promise<void> { this.sent.push(message) }
+  async send(message: DesktopClientMessage): Promise<void> {
+    this.sent.push(message)
+    if (this.failNextSend) { this.failNextSend = false; throw new Error('injected send failure') }
+  }
   emit(message: DesktopServerMessage): void { this.callbacks.onMessage(message) }
 }
 
@@ -352,6 +362,34 @@ describe('DesktopBridgeRuntime headless data plane', () => {
     expect(h.transport.sent).toHaveLength(sentBefore)
   })
 
+  test('revokes the remote Desktop instance before safe profile clear removes local bindings', async () => {
+    const h = createHarness()
+    await authenticate(h)
+    await pair(h)
+    const clearing = h.runtime.prepareProfileClear()
+    const revoke = await waitForCount(h.transport, 'desktop.revoke', 1)
+    expect(h.runtime.safeState.bindings).toHaveLength(1)
+    h.transport.emit({
+      type: 'desktop.revoked', deploymentId: DEPLOYMENT_ID, instanceId: INSTANCE_ID,
+      revokedAtMs: 20, requestId: revoke.requestId, version: BRIDGE_PROTOCOL_VERSION,
+    })
+    await clearing
+    expect(h.runtime.safeState.bindings).toEqual([])
+  })
+
+  test('failed remote profile clear preserves binding authorization but forces resync before admission resumes', async () => {
+    const h = createHarness()
+    await authenticate(h)
+    await pair(h)
+    h.transport.failNextSend = true
+    await expect(h.runtime.prepareProfileClear()).rejects.toThrow()
+    expect(h.runtime.safeState.bindings).toHaveLength(1)
+    emitCommand(h, 0, { command: 'session.subscribe', sessionId: 'session-1', afterCursor: null })
+    expect(await waitForCount(h.transport, 'command.result', 1)).toMatchObject({
+      outcome: 'error', error: { code: 'RESYNC_REQUIRED', retryable: false },
+    })
+  })
+
   test('drops live subscriptions but preserves replay on offline, then clears binding authorization on revoke', async () => {
     const h = createHarness()
     await authenticate(h)
@@ -385,11 +423,15 @@ describe('DesktopBridgeRuntime headless data plane', () => {
     })
     emitCommand(h, 1, { command: 'session.subscribe', sessionId: 'session-1', afterCursor: initialCursor })
     expect(await waitForCount(h.transport, 'command.result', 2)).toMatchObject({
-      outcome: 'success',
-      result: {
-        command: 'session.subscribe',
-        replay: [expect.objectContaining({ payload: { kind: 'assistant.message', text: 'retained across short disconnect', state: 'complete' } })],
-      },
+      outcome: 'error',
+      command: 'session.subscribe',
+      error: { code: 'RESYNC_REQUIRED', retryable: false },
+    })
+
+    // A replacement snapshot is the only operation that clears the durable gap marker.
+    emitCommand(h, 3, { command: 'session.snapshot', sessionId: 'session-1' })
+    expect(await waitForCount(h.transport, 'command.result', 3)).toMatchObject({
+      outcome: 'success', result: { command: 'session.snapshot' },
     })
 
     h.transport.emit({
@@ -399,8 +441,8 @@ describe('DesktopBridgeRuntime headless data plane', () => {
     for (let i = 0; i < 50 && h.runtime.listBindings().length > 0; i++) await flush()
     expect(h.runtime.listBindings()).toEqual([])
 
-    emitCommand(h, 2, { command: 'workspace.list-local' })
-    expect(await waitForCount(h.transport, 'command.result', 3)).toMatchObject({
+    emitCommand(h, 4, { command: 'workspace.list-local' })
+    expect(await waitForCount(h.transport, 'command.result', 4)).toMatchObject({
       outcome: 'error',
       error: { code: 'NOT_AUTHORIZED', retryable: false },
     })

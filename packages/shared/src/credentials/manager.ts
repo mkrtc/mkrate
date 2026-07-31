@@ -13,6 +13,11 @@ import { SecureStorageBackend } from './backends/secure-storage.ts';
 import { debug } from '../utils/debug.ts';
 import { isUuid, toCanonicalUuid } from '../utils/uuid.ts';
 import { isCanonicalUuid } from '../utils/uuid-format.ts';
+import {
+  parseBridgeCredentialEnvelope,
+  serializeBridgeCredentialEnvelope,
+  type BridgeCredentialEnvelope,
+} from './bridge-credential.ts';
 
 export interface CredentialManagerOptions {
   /** Override the credential config directory (for tests and custom deployments). */
@@ -518,20 +523,21 @@ export class CredentialManager {
     }
   }
 
-  /** Get the per-instance Bridge token for a profile, or null if none is stored. */
-  async getBridgeInstanceToken(bridgeProfileId: string): Promise<string | null> {
+  /** Get and strictly parse the encrypted, origin-bound credential envelope. */
+  async getBridgeInstanceCredential(bridgeProfileId: string): Promise<BridgeCredentialEnvelope | null> {
     await this.ensureInitialized();
     this.assertBridgeProfileId(bridgeProfileId);
     const cred = await this.getInternal({ type: 'bridge_instance_token', bridgeProfileId }, { strict: true });
-    return cred?.value || null;
+    return cred ? parseBridgeCredentialEnvelope(cred.value) : null;
   }
 
-  /** Store the per-instance Bridge token for a profile. */
-  async setBridgeInstanceToken(bridgeProfileId: string, token: string): Promise<void> {
-    this.assertBridgeProfileId(bridgeProfileId);
-    // Reject empty and whitespace-only tokens (a blank token is never valid).
-    if (!token || token.trim().length === 0) throw new Error('Bridge instance token must not be empty');
-    await this.set({ type: 'bridge_instance_token', bridgeProfileId }, { value: token });
+  /** Store the versioned envelope in the encrypted credential backend. */
+  async setBridgeInstanceCredential(envelope: BridgeCredentialEnvelope): Promise<void> {
+    this.assertBridgeProfileId(envelope.profileId);
+    await this.set(
+      { type: 'bridge_instance_token', bridgeProfileId: envelope.profileId },
+      { value: serializeBridgeCredentialEnvelope(envelope) },
+    );
   }
 
   /** Delete the per-instance Bridge token for a profile. Returns true if one was removed. */
@@ -542,7 +548,7 @@ export class CredentialManager {
 
   /** Whether a Bridge profile has an instance token stored. */
   async hasBridgeInstanceToken(bridgeProfileId: string): Promise<boolean> {
-    return !!(await this.getBridgeInstanceToken(bridgeProfileId));
+    return !!(await this.getBridgeInstanceCredential(bridgeProfileId));
   }
 
   /** List the canonical (lowercase) Bridge profile ids that have an instance token stored. */
@@ -559,6 +565,53 @@ export class CredentialManager {
       }
     }
     return result;
+  }
+
+  // ============================================================
+  // Bridge enrollment/profile saga staging (internal)
+  //
+  // Only post-enrollment instance credential envelopes may be staged here.
+  // Bootstrap/enrollment tokens have no credential identity or API.
+  // ============================================================
+
+  async stageBridgeSagaCredential(sagaId: string, slot: 'before' | 'after', envelope: BridgeCredentialEnvelope): Promise<void> {
+    this.assertSagaId(sagaId);
+    await this.set({ type: 'bridge_saga_stage', sagaId, sagaSlot: slot }, { value: serializeBridgeCredentialEnvelope(envelope) });
+  }
+
+  async readStagedBridgeSagaCredential(sagaId: string, slot: 'before' | 'after'): Promise<BridgeCredentialEnvelope | null> {
+    this.assertSagaId(sagaId);
+    await this.ensureInitialized();
+    const cred = await this.getInternal({ type: 'bridge_saga_stage', sagaId, sagaSlot: slot }, { strict: true });
+    return cred ? parseBridgeCredentialEnvelope(cred.value) : null;
+  }
+
+  async deleteStagedBridgeSagaCredential(sagaId: string, slot: 'before' | 'after'): Promise<boolean> {
+    this.assertSagaId(sagaId);
+    return this.delete({ type: 'bridge_saga_stage', sagaId, sagaSlot: slot });
+  }
+
+  async quarantineBridgeSagaCredential(sagaId: string, slot: 'before' | 'after', token: string, envelope: BridgeCredentialEnvelope): Promise<void> {
+    this.assertSagaId(sagaId);
+    await this.set(
+      { type: 'bridge_saga_quarantine', sagaId, sagaSlot: slot, quarantineToken: token },
+      { value: serializeBridgeCredentialEnvelope(envelope) },
+    );
+  }
+
+  async listBridgeSagaStageSagaIds(): Promise<string[]> {
+    await this.ensureInitialized();
+    const prefix = 'bridge_saga_stage::';
+    const seen = new Set<string>();
+    for (const backend of this.backends) {
+      if (!backend.listRawAccounts) continue;
+      for (const account of await backend.listRawAccounts()) {
+        if (!account.startsWith(prefix)) continue;
+        const sagaId = account.slice(prefix.length).split('::')[0];
+        if (sagaId && isCanonicalUuid(sagaId)) seen.add(sagaId);
+      }
+    }
+    return [...seen];
   }
 
   // ============================================================
