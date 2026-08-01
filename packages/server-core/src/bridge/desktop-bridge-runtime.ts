@@ -126,7 +126,7 @@ export class DesktopBridgeRuntime {
     this.#authorityStore = options.authorityStore
     this.#commitEnrollment = options.commitEnrollment
     this.#enrollmentToken = options.enrollmentToken
-    this.#clientVersion = options.clientVersion ?? '0.0.1'
+    this.#clientVersion = options.clientVersion ?? '0.0.2'
     this.#allowInsecureLoopback = options.allowInsecureLoopback === true
     this.#logger = options.logger ?? NULL_BRIDGE_LOGGER
     this.#now = options.now ?? Date.now

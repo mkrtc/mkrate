@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const repoRoot = join(import.meta.dir, '..', '..')
-const releaseVersion = '0.0.1'
+const releaseVersion = '0.0.2'
 
 function readJson(path: string) {
   return JSON.parse(readFileSync(join(repoRoot, path), 'utf8'))
@@ -13,8 +13,8 @@ function readText(path: string) {
   return readFileSync(join(repoRoot, path), 'utf8')
 }
 
-describe('Mkrate v0.0.1 release version contract', () => {
-  it('sets only selected product and Bridge client-version locations to v0.0.1', () => {
+describe('Mkrate v0.0.2 release version contract', () => {
+  it('sets only selected product and Bridge client-version locations to v0.0.2', () => {
     const rootPackage = readJson('package.json')
     const electronPackage = readJson('apps/electron/package.json')
     const serverCorePackage = readJson('packages/server-core/package.json')
@@ -25,10 +25,10 @@ describe('Mkrate v0.0.1 release version contract', () => {
     expect(electronPackage.version).toBe(releaseVersion)
 
     expect(readText('packages/server-core/src/bridge/desktop-bridge-runtime.ts')).toContain(
-      "this.#clientVersion = options.clientVersion ?? '0.0.1'",
+      "this.#clientVersion = options.clientVersion ?? '0.0.2'",
     )
     expect(readText('packages/server-core/src/bridge/bridge-connector-service.ts')).toContain(
-      "this.#clientVersion = options.clientVersion ?? '0.0.1';",
+      "this.#clientVersion = options.clientVersion ?? '0.0.2';",
     )
 
     expect(serverCorePackage.version).toBe('0.11.23')

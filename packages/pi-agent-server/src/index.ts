@@ -45,6 +45,12 @@ import type {
 // Pi AI types
 import type { Credential, TextContent as PiTextContent } from '@earendil-works/pi-ai';
 
+// Register Pi SDK OAuth flow modules for the bundled Bun subprocess. Without
+// this, lazy OAuth loaders try to import sibling files such as
+// "./openai-codex.js" next to the single-file bundle at runtime.
+import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth';
+registerBunOAuthFlows();
+
 // Pre-register the Bedrock provider module so the Pi SDK doesn't attempt a
 // dynamic import of "./amazon-bedrock.js" — which fails in the bundled output
 // because bun collapses everything into a single file.
