@@ -4,6 +4,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
 import { getPiModelsForAuthProvider } from '../models-pi.ts'
+import { KIMI_K3_CATALOG_MIGRATION_ID } from '../storage.ts'
 
 const PI_ANTHROPIC_OPUS_DEFAULT = getPiModelsForAuthProvider('anthropic').some(m => m.id === 'pi/claude-opus-4-8')
   ? 'pi/claude-opus-4-8'
@@ -67,11 +68,17 @@ function writeRootConfig(configPath: string, workspaceRoot: string, llmConnectio
   )
 }
 
-function runMigration(configDir: string) {
+function runMigration(
+  configDir: string,
+  options: { registerPiResolver?: boolean } = {},
+) {
+  const resolverImport = options.registerPiResolver === false
+    ? ''
+    : `import '${PI_RESOLVER_SETUP_PATH}';`
   const run = Bun.spawnSync([
     process.execPath,
     '--eval',
-    `import '${PI_RESOLVER_SETUP_PATH}'; import { migrateLegacyLlmConnectionsConfig } from '${STORAGE_MODULE_PATH}'; migrateLegacyLlmConnectionsConfig();`,
+    `${resolverImport} import { migrateLegacyLlmConnectionsConfig } from '${STORAGE_MODULE_PATH}'; migrateLegacyLlmConnectionsConfig();`,
   ], {
     env: {
       ...process.env,
@@ -176,6 +183,94 @@ describe('startup migration (integration)', () => {
     expect(modelIds.length).toBeGreaterThan(1)
     expect(modelIds).toContain(PI_ANTHROPIC_OPUS_DEFAULT)
     expect(modelIds).toContain(connection.defaultModel)
+  })
+
+  it('upgrades the legacy Kimi singleton catalog to K3 exactly once', () => {
+    const { configDir, workspaceRoot, configPath } = setupWorkspaceConfigDir()
+
+    writeRootConfig(configPath, workspaceRoot, [
+      {
+        slug: 'pi-api-key',
+        name: 'Kimi Coding',
+        providerType: 'pi',
+        authType: 'api_key',
+        piAuthProvider: 'kimi-coding',
+        modelSelectionMode: 'userDefined3Tier',
+        createdAt: Date.now(),
+        baseUrl: 'https://api.kimi.com/coding',
+        models: ['pi/kimi-for-coding'],
+        defaultModel: 'pi/kimi-for-coding',
+      },
+    ])
+
+    // If startup ordering temporarily leaves the Pi resolver unavailable, record
+    // provider ownership but defer the catalog replacement and marker for retry.
+    runMigration(configDir, { registerPiResolver: false })
+    const deferredConfig = JSON.parse(readFileSync(configPath, 'utf-8'))
+    const deferredConnection = deferredConfig.llmConnections[0]
+    expect(deferredConnection.modelSelectionMode).toBe('automaticallySyncedFromProvider')
+    expect(getModelIds(deferredConnection)).toEqual(['pi/kimi-for-coding'])
+    expect(deferredConnection.defaultModel).toBe('pi/kimi-for-coding')
+    expect(deferredConfig.migrationsApplied ?? []).not.toContain(KIMI_K3_CATALOG_MIGRATION_ID)
+
+    runMigration(configDir)
+
+    const migratedConfig = JSON.parse(readFileSync(configPath, 'utf-8'))
+    const connection = migratedConfig.llmConnections[0]
+    const modelIds = getModelIds(connection)
+    expect(connection.modelSelectionMode).toBe('automaticallySyncedFromProvider')
+    expect(connection.defaultModel).toBe('pi/k3')
+    expect(modelIds).toEqual([
+      'pi/k3',
+      'pi/k3-256k',
+      'pi/kimi-for-coding',
+      'pi/kimi-for-coding-highspeed',
+    ])
+    expect(migratedConfig.migrationsApplied).toContain(KIMI_K3_CATALOG_MIGRATION_ID)
+
+    // Once marked, a later deliberate K2.7-only selection must remain user-owned.
+    connection.modelSelectionMode = 'userDefined3Tier'
+    connection.models = ['pi/kimi-for-coding']
+    connection.defaultModel = 'pi/kimi-for-coding'
+    writeFileSync(configPath, JSON.stringify(migratedConfig, null, 2), 'utf-8')
+
+    runMigration(configDir)
+
+    const rerunConfig = JSON.parse(readFileSync(configPath, 'utf-8'))
+    const rerunConnection = rerunConfig.llmConnections[0]
+    expect(rerunConnection.modelSelectionMode).toBe('userDefined3Tier')
+    expect(getModelIds(rerunConnection)).toEqual(['pi/kimi-for-coding'])
+    expect(rerunConnection.defaultModel).toBe('pi/kimi-for-coding')
+    expect(rerunConfig.migrationsApplied.filter(
+      (id: string) => id === KIMI_K3_CATALOG_MIGRATION_ID,
+    )).toHaveLength(1)
+  })
+
+  it('preserves genuine custom Kimi selections while completing the one-shot migration', () => {
+    const { configDir, workspaceRoot, configPath } = setupWorkspaceConfigDir()
+
+    writeRootConfig(configPath, workspaceRoot, [
+      {
+        slug: 'pi-api-key',
+        name: 'Kimi Coding',
+        providerType: 'pi',
+        authType: 'api_key',
+        piAuthProvider: 'kimi-coding',
+        modelSelectionMode: 'userDefined3Tier',
+        createdAt: Date.now(),
+        models: ['pi/kimi-for-coding-highspeed'],
+        defaultModel: 'pi/kimi-for-coding-highspeed',
+      },
+    ])
+
+    runMigration(configDir)
+
+    const migratedConfig = JSON.parse(readFileSync(configPath, 'utf-8'))
+    const connection = migratedConfig.llmConnections[0]
+    expect(connection.modelSelectionMode).toBe('userDefined3Tier')
+    expect(getModelIds(connection)).toEqual(['pi/kimi-for-coding-highspeed'])
+    expect(connection.defaultModel).toBe('pi/kimi-for-coding-highspeed')
+    expect(migratedConfig.migrationsApplied).toContain(KIMI_K3_CATALOG_MIGRATION_ID)
   })
 
   it('repairs userDefined3Tier lists by removing invalid IDs and fixing default model', () => {

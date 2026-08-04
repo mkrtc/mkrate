@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { inferModelSelectionMode, shouldMigratePiOpenAiProvider, shouldRepairPiApiKeyCodexProvider } from '../storage'
+import {
+  inferModelSelectionMode,
+  isLegacyKimiCodingDefaultSelection,
+  shouldMigratePiOpenAiProvider,
+  shouldRepairPiApiKeyCodexProvider,
+} from '../storage'
 
 describe('shouldMigratePiOpenAiProvider', () => {
   it('migrates legacy Pi OAuth OpenAI connections to openai-codex', () => {
@@ -87,5 +92,43 @@ describe('inferModelSelectionMode', () => {
     const providerDefaults = ['pi/zai-best', 'pi/zai-balanced', 'pi/zai-fast']
     const mode = inferModelSelectionMode({ models: [] }, providerDefaults)
     expect(mode).toBe('automaticallySyncedFromProvider')
+  })
+})
+
+describe('isLegacyKimiCodingDefaultSelection', () => {
+  const baseConnection = {
+    providerType: 'pi' as const,
+    piAuthProvider: 'kimi-coding',
+  }
+
+  it('recognizes prefixed, bare, and duplicate forms of the old singleton catalog', () => {
+    expect(isLegacyKimiCodingDefaultSelection({
+      ...baseConnection,
+      models: ['pi/kimi-for-coding'],
+    })).toBe(true)
+    expect(isLegacyKimiCodingDefaultSelection({
+      ...baseConnection,
+      models: ['kimi-for-coding'],
+    })).toBe(true)
+    expect(isLegacyKimiCodingDefaultSelection({
+      ...baseConnection,
+      models: ['pi/kimi-for-coding', 'pi/kimi-for-coding', 'pi/kimi-for-coding'],
+    })).toBe(true)
+  })
+
+  it('rejects real custom selections and non-Kimi providers', () => {
+    expect(isLegacyKimiCodingDefaultSelection({
+      ...baseConnection,
+      models: ['pi/kimi-for-coding-highspeed'],
+    })).toBe(false)
+    expect(isLegacyKimiCodingDefaultSelection({
+      ...baseConnection,
+      models: ['pi/kimi-for-coding', 'pi/kimi-for-coding-highspeed'],
+    })).toBe(false)
+    expect(isLegacyKimiCodingDefaultSelection({
+      providerType: 'pi',
+      piAuthProvider: 'openrouter',
+      models: ['pi/kimi-for-coding'],
+    })).toBe(false)
   })
 })

@@ -1729,6 +1729,71 @@ export function inferModelSelectionMode(
     : 'userDefined3Tier';
 }
 
+export const KIMI_K3_CATALOG_MIGRATION_ID = 'kimi-coding-k3-catalog-v1';
+const LEGACY_KIMI_CODING_DEFAULT_MODEL_ID = 'kimi-for-coding';
+
+/**
+ * Identify the exact provider-owned Kimi model list shipped before K3 support.
+ *
+ * Older configs did not record model-list ownership. On the first K3-capable
+ * startup, the generic backfill therefore inferred the old singleton catalog as
+ * a custom three-tier selection and preserved it forever. Keep this predicate
+ * deliberately narrow so genuine user-selected Kimi subsets remain untouched.
+ */
+export function isLegacyKimiCodingDefaultSelection(
+  connection: Pick<LlmConnection, 'providerType' | 'piAuthProvider' | 'models'>,
+): boolean {
+  if (!isPiProvider(connection.providerType) || connection.piAuthProvider !== 'kimi-coding') return false;
+
+  const bareIds = normalizeModelIds(connection.models)
+    .map(id => id.startsWith('pi/') ? id.slice(3) : id);
+  return modelSetEquals(bareIds, [LEGACY_KIMI_CODING_DEFAULT_MODEL_ID]);
+}
+
+/**
+ * One-shot repair for Kimi connections incorrectly frozen on the pre-K3 catalog.
+ * The marker prevents a later intentional K2.7-only selection from being reset.
+ */
+function migrateLegacyKimiCodingCatalog(config: StoredConfig): boolean {
+  const migrationsApplied = config.migrationsApplied ?? [];
+  if (migrationsApplied.includes(KIMI_K3_CATALOG_MIGRATION_ID)) return false;
+
+  const legacyConnections = (config.llmConnections ?? [])
+    .filter(isLegacyKimiCodingDefaultSelection);
+  const replacements = legacyConnections.map(connection => {
+    const models = getDefaultModelsForConnection(connection.providerType, connection.piAuthProvider);
+    const k3Default = models.find(model => (typeof model === 'string' ? model : model.id) === 'pi/k3');
+    return k3Default ? { connection, models } : null;
+  });
+
+  // Resolver registration should make K3 available before startup migrations.
+  // If it did not, preserve the known provider-owned status now but defer the
+  // catalog/default replacement and marker so a later startup can retry.
+  if (replacements.some(replacement => replacement === null)) {
+    let changed = false;
+    for (const connection of legacyConnections) {
+      if (connection.modelSelectionMode !== 'automaticallySyncedFromProvider') {
+        connection.modelSelectionMode = 'automaticallySyncedFromProvider';
+        changed = true;
+      }
+    }
+    debug('[storage] Kimi K3 catalog migration deferred: pi/k3 is unavailable');
+    return changed;
+  }
+
+  for (const replacement of replacements) {
+    if (!replacement) continue;
+    replacement.connection.modelSelectionMode = 'automaticallySyncedFromProvider';
+    replacement.connection.models = replacement.models;
+    replacement.connection.defaultModel = 'pi/k3';
+  }
+
+  // Stamp even when no legacy connection exists. Any K2.7-only selection made
+  // after this K3-capable startup is user-owned and must not be reclassified later.
+  config.migrationsApplied = [...migrationsApplied, KIMI_K3_CATALOG_MIGRATION_ID];
+  return true;
+}
+
 function backfillAllConnectionModels(config: StoredConfig): boolean {
   if (!config.llmConnections) return false;
   let changed = false;
@@ -2337,6 +2402,10 @@ export function migrateLegacyLlmConnectionsConfig(): void {
       needsSave = true;
     }
 
+    // Phase 1b-kimi: Repair connections frozen on the pre-K3 singleton catalog.
+    if (migrateLegacyKimiCodingCatalog(config)) {
+      needsSave = true;
+    }
     // Phase 1b: Normalize legacy Opus IDs/defaults before Pi model-list filtering.
     if (migrateLegacyOpusToDefaultOpus(config)) {
       needsSave = true;
@@ -2490,6 +2559,7 @@ export function migrateLegacyLlmConnectionsConfig(): void {
 
   // Run the same backfill and migration on newly created connections
   migrateCodexCopilotToPi(config);
+  migrateLegacyKimiCodingCatalog(config);
   backfillAllConnectionModels(config);
   migrateModelDefaultsToConnections(config);
   migrateLegacyOpusToDefaultOpus(config);

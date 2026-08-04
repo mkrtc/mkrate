@@ -8,4 +8,6 @@ This file accumulates release notes for the next unreleased version. PRs that ad
 
 ## Bug Fixes
 
+- **Kimi K3 model selection** — existing Kimi Coding connections created before K3 support now adopt the current model catalog instead of remaining limited to the legacy K2.7 model.
+
 ## Breaking Changes
